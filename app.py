@@ -44,9 +44,12 @@ def load_data():
     mdf = read_ws("현장마스터", header_row=0)
     mdf.columns = [c.strip() for c in mdf.columns]
 
-    # 작업내역 (1행 헤더)
-    rdf = read_ws("작업내역", header_row=0)
-    rdf.columns = [c.strip() for c in rdf.columns]
+    # 작업내역 시트 자동 탐색
+    all_sheets = [ws.title for ws in sh.worksheets()]
+    work_sheet = next((s for s in all_sheets if "작업" in s), None)
+    if not work_sheet:
+        raise Exception(f"작업내역 시트를 찾을 수 없습니다. 현재 시트: {all_sheets}")
+    rdf = read_ws(work_sheet, header_row=0)
 
     # 컬럼명 표준화
     col_map = {}
