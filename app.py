@@ -17,6 +17,12 @@ div[data-testid="metric-container"]{background:#fff;border-radius:12px;padding:1
 
 SCOPES = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
 
+# 현장 목록 — 새 현장 추가 시 여기에 추가
+SITE_SHEETS = [
+    {"id": "SC001", "name": "스프링카운티자이", "sheet": "스프링카운티자이"},
+    {"id": "DS001", "name": "다산유승한내들",   "sheet": "다산유승한내들"},
+]
+
 @st.cache_resource
 def get_client():
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
@@ -33,45 +39,18 @@ def load_data():
     client = get_client()
     sh = client.open_by_key(st.secrets["spreadsheet_id"])
 
-    def read_ws(name, header_row=0):
+    def read_ws(name):
         vals = sh.worksheet(name).get_all_values()
-        if not vals: return pd.DataFrame()
-        headers = [h.strip() or f"col{i}" for i,h in enumerate(vals[header_row])]
-        df = pd.DataFrame(vals[header_row+1:], columns=headers)
+        if not vals or len(vals) < 2: return pd.DataFrame()
+        headers = [h.strip() or f"col{i}" for i,h in enumerate(vals[0])]
+        df = pd.DataFrame(vals[1:], columns=headers)
         return df
 
-    # 현장마스터 (1행 헤더)
-    mdf = read_ws("현장마스터", header_row=0)
-    mdf.columns = [c.strip() for c in mdf.columns]
-
-    # 작업내역 시트 자동 탐색
-    all_sheets = [ws.title for ws in sh.worksheets()]
-    work_sheet = next((s for s in all_sheets if "작업" in s), None)
-    if not work_sheet:
-        raise Exception(f"작업내역 시트를 찾을 수 없습니다. 현재 시트: {all_sheets}")
-    rdf = read_ws(work_sheet, header_row=0)
-
-    # 컬럼명 표준화
-    col_map = {}
-    for c in rdf.columns:
-        cl = c.lower()
-        if "현장id" in cl or "현장 id" in cl: col_map[c] = "현장ID"
-        elif "날짜" in cl: col_map[c] = "날짜"
-        elif "주차" in cl: col_map[c] = "주차"
-        elif "카테고리" in cl: col_map[c] = "카테고리"
-        elif "작업" in cl and "항목" in cl: col_map[c] = "작업항목"
-        elif "규격" in cl or "단위" in cl: col_map[c] = "규격단위"
-        elif "수량" in cl: col_map[c] = "수량"
-        elif "단가" in cl and "금액" not in cl: col_map[c] = "단가"
-        elif "금액" in cl: col_map[c] = "금액"
-        elif "상태" in cl: col_map[c] = "상태"
-        elif "비고" in cl: col_map[c] = "비고"
-    rdf = rdf.rename(columns=col_map)
-
-    # 현장마스터 컬럼 표준화
+    # 현장마스터
+    mdf = read_ws("현장마스터")
     mcol_map = {}
     for c in mdf.columns:
-        cl = c.lower()
+        cl = c.lower().replace(" ","")
         if "현장id" in cl: mcol_map[c] = "현장ID"
         elif "현장명" in cl: mcol_map[c] = "현장명"
         elif "센터장" in cl or "담당" in cl: mcol_map[c] = "담당센터장"
@@ -81,30 +60,52 @@ def load_data():
         elif "종료" in cl: mcol_map[c] = "계약종료"
         elif "유형" in cl: mcol_map[c] = "유형"
     mdf = mdf.rename(columns=mcol_map)
+    if "월예산" in mdf.columns:
+        mdf["월예산"] = mdf["월예산"].apply(clean_number)
+    if "면적" in mdf.columns:
+        mdf["면적"] = mdf["면적"].apply(clean_number)
+    mdf = mdf[mdf.get("현장ID", pd.Series(dtype=str)).astype(str).str.strip() != ""]
 
-    # 현장명 붙이기
-    if "현장ID" in rdf.columns and "현장ID" in mdf.columns:
-        id_to_name = dict(zip(mdf["현장ID"], mdf.get("현장명", pd.Series())))
-        rdf["현장명"] = rdf["현장ID"].map(id_to_name)
+    # 현장별 시트 읽기
+    frames = []
+    for site in SITE_SHEETS:
+        try:
+            df = read_ws(site["sheet"])
+            # 컬럼명 표준화
+            col_map = {}
+            for c in df.columns:
+                cl = c.lower().replace(" ","")
+                if "날짜" in cl: col_map[c] = "날짜"
+                elif "주차" in cl: col_map[c] = "주차"
+                elif "카테고리" in cl: col_map[c] = "카테고리"
+                elif "작업" in cl and "항목" in cl: col_map[c] = "작업항목"
+                elif "규격" in cl or ("단위" in cl and "단가" not in cl): col_map[c] = "규격단위"
+                elif "수량" in cl: col_map[c] = "수량"
+                elif "단가" in cl: col_map[c] = "단가"
+                elif "금액" in cl: col_map[c] = "금액"
+                elif "상태" in cl: col_map[c] = "상태"
+                elif "비고" in cl: col_map[c] = "비고"
+            df = df.rename(columns=col_map)
+            df["현장ID"] = site["id"]
+            df["현장명"] = site["name"]
+            frames.append(df)
+        except Exception as e:
+            st.warning(f"{site['name']} 시트 오류: {e}")
+
+    rdf = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
     # 숫자 변환
     for col in ["수량","단가","금액"]:
         if col in rdf.columns:
             rdf[col] = rdf[col].apply(clean_number)
-    if "월예산" in mdf.columns:
-        mdf["월예산"] = mdf["월예산"].apply(clean_number)
-    if "면적" in mdf.columns:
-        mdf["면적"] = mdf["면적"].apply(clean_number)
 
     # 금액 재계산
     if "수량" in rdf.columns and "단가" in rdf.columns:
         rdf["금액"] = rdf["수량"] * rdf["단가"]
 
-    # 빈 행 제거 (작업항목이 비어있는 행 제거)
+    # 빈 행 제거 (작업항목 없는 행)
     if "작업항목" in rdf.columns:
-        rdf = rdf[rdf["작업항목"].astype(str).str.strip().isin(["", "0"]) == False]
-    elif "현장ID" in rdf.columns:
-        rdf = rdf[rdf["현장ID"].astype(str).str.strip() != ""]
+        rdf = rdf[rdf["작업항목"].astype(str).str.strip().isin(["","0"]) == False]
 
     return mdf, rdf
 
@@ -148,7 +149,7 @@ site_names = list(rdf["현장명"].dropna().unique()) if "현장명" in rdf.colu
 if menu == "📊 대시보드":
     st.title("📊 대시보드")
 
-    c1, c2 = st.columns([1, 5])
+    c1, _ = st.columns([1,5])
     month = c1.text_input("기준월", value="2026-06")
 
     act = rdf.copy()
@@ -159,20 +160,20 @@ if menu == "📊 대시보드":
     total_budget = get_total_budget(mdf)
     upcoming = rdf[rdf["상태"]=="예정"].sort_values("날짜") if "상태" in rdf.columns and "날짜" in rdf.columns else pd.DataFrame()
 
-    col1,col2,col3 = st.columns(3)
-    col1.metric("이번달 실투입 원가", fmt_won(total_act), f"예산 {fmt_won(total_budget)}")
-    col2.metric("전체 집행률", f"{pct(total_act,total_budget)}%", f"잔여 {fmt_won(total_budget-total_act)}")
-    col3.metric("예정 작업", f"{len(upcoming)}건", "향후 30일")
+    c1,c2,c3 = st.columns(3)
+    c1.metric("이번달 실투입 원가", fmt_won(total_act), f"예산 {fmt_won(total_budget)}")
+    c2.metric("전체 집행률", f"{pct(total_act,total_budget)}%", f"잔여 {fmt_won(total_budget-total_act)}")
+    c3.metric("예정 작업", f"{len(upcoming)}건", "향후 30일")
 
     st.divider()
     st.subheader("현장별 집행 현황")
     cols = st.columns(max(len(SITES),1))
     for i, site in enumerate(SITES):
-        sid   = site.get("현장ID","")
+        sid = site.get("현장ID","")
         sname = site.get("현장명","")
-        budget= get_budget(mdf, sid)
+        budget = get_budget(mdf, sid)
         site_act = act[act["현장ID"]==sid]["금액"].sum() if "현장ID" in act.columns else 0
-        rate  = pct(site_act, budget)
+        rate = pct(site_act, budget)
         with cols[i]:
             st.markdown(f"**{sname}**")
             st.progress(min(rate/100,1.0))
@@ -181,12 +182,11 @@ if menu == "📊 대시보드":
             b.metric("집행률", f"{rate}%")
 
     st.divider()
-    cl, cr = st.columns([1.7,1])
+    cl,cr = st.columns([1.7,1])
     with cl:
         st.subheader("주별 원가 추이")
         if "주차" in act.columns and "현장명" in act.columns and not act.empty:
-            weekly = act.groupby(["주차","현장명"])["금액"].sum().reset_index()
-            pivot = weekly.pivot(index="주차", columns="현장명", values="금액").fillna(0)
+            pivot = act.groupby(["주차","현장명"])["금액"].sum().reset_index().pivot(index="주차",columns="현장명",values="금액").fillna(0)
             st.bar_chart(pivot)
     with cr:
         st.subheader("항목별 원가 구성")
@@ -197,7 +197,7 @@ if menu == "📊 대시보드":
     st.subheader("예정 작업 (다음 30일)")
     if not upcoming.empty:
         cols3 = st.columns(3)
-        for i, (_, row) in enumerate(upcoming.head(6).iterrows()):
+        for i,(_, row) in enumerate(upcoming.head(6).iterrows()):
             with cols3[i%3]:
                 with st.container(border=True):
                     st.caption(f"📅 {row.get('날짜','')} · {row.get('주차','')}주차")
@@ -226,7 +226,7 @@ elif menu == "📋 작업 내역":
     if cat_filter!="전체" and "카테고리" in filtered.columns:
         filtered = filtered[filtered["카테고리"]==cat_filter]
     if search and "작업항목" in filtered.columns:
-        filtered = filtered[filtered["작업항목"].str.contains(search, na=False)]
+        filtered = filtered[filtered["작업항목"].str.contains(search,na=False)]
 
     total = filtered["금액"].sum() if "금액" in filtered.columns else 0
     st.caption(f"총 {len(filtered)}건 · 합계: **{fmt_won(total)}**")
@@ -236,8 +236,8 @@ elif menu == "📋 작업 내역":
         filtered[show].reset_index(drop=True),
         use_container_width=True, height=500,
         column_config={
-            "금액": st.column_config.NumberColumn("금액", format="%d원"),
-            "단가": st.column_config.NumberColumn("단가", format="%d원"),
+            "금액": st.column_config.NumberColumn("금액",format="%d원"),
+            "단가": st.column_config.NumberColumn("단가",format="%d원"),
         }
     )
 
@@ -249,7 +249,7 @@ elif menu == "📍 현장 현황":
         sid   = site.get("현장ID","")
         sname = site.get("현장명","")
         budget= get_budget(mdf, sid)
-        srecs = rdf[(rdf.get("현장ID",pd.Series())==sid) & (rdf.get("상태",pd.Series())=="실적")] if "현장ID" in rdf.columns else pd.DataFrame()
+        srecs = rdf[(rdf["현장ID"]==sid)&(rdf["상태"]=="실적")] if "현장ID" in rdf.columns and "상태" in rdf.columns else pd.DataFrame()
         actual= srecs["금액"].sum() if "금액" in srecs.columns else 0
         rate  = pct(actual, budget)
 
@@ -277,11 +277,7 @@ elif menu == "📄 보고서":
     if rep_site!="전체" and "현장명" in recs.columns: recs = recs[recs["현장명"]==rep_site]
 
     total  = recs["금액"].sum() if "금액" in recs.columns else 0
-    if rep_site=="전체":
-        budget = get_total_budget(mdf)
-    else:
-        sid = mdf[mdf.get("현장명",pd.Series())==rep_site]["현장ID"].values[0] if "현장명" in mdf.columns and not mdf[mdf.get("현장명",pd.Series())==rep_site].empty else ""
-        budget = get_budget(mdf, sid)
+    budget = get_total_budget(mdf) if rep_site=="전체" else get_budget(mdf, mdf[mdf.get("현장명",pd.Series())==rep_site]["현장ID"].values[0] if "현장명" in mdf.columns and not mdf[mdf.get("현장명",pd.Series())==rep_site].empty else "")
 
     c1,c2,c3 = st.columns(3)
     c1.metric("총 집행 원가", fmt_won(total), f"예산 {fmt_won(budget)}")
@@ -306,8 +302,8 @@ elif menu == "📄 보고서":
         recs[show].reset_index(drop=True),
         use_container_width=True,
         column_config={
-            "금액": st.column_config.NumberColumn("금액", format="%d원"),
-            "단가": st.column_config.NumberColumn("단가", format="%d원"),
+            "금액": st.column_config.NumberColumn("금액",format="%d원"),
+            "단가": st.column_config.NumberColumn("단가",format="%d원"),
         }
     )
     st.caption(f"합계: **{fmt_won(total)}**")
