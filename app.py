@@ -20,7 +20,6 @@ SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/a
 MASTER_SHEET = "현장마스터"
 LOG_SHEET = "작업내역"
 
-# 원가 3요소. 작업내역 시트의 '카테고리' 값은 이 세 가지 중 하나여야 함 (분류는 시트 작성자 책임).
 COST_CATEGORIES = ["재료비", "노무비", "경비"]
 
 
@@ -31,7 +30,6 @@ def get_client():
 
 
 def clean_number(val):
-    """숫자 문자열(콤마, 공백, 원, ㎡ 등 단위 포함)을 float으로 변환. 실패 시 None을 반환해 호출부에서 감지 가능하게 함."""
     if val is None:
         return None
     s = str(val).strip()
@@ -65,15 +63,15 @@ def load_data():
 
     warnings = []
 
-    # ── 현장마스터 ──────────────────────────────────────────
+    # ── 현장마스터 (한 행 = 공사 하나. 현장명 컬럼 없음 — 공사명 문자열 안에 현장명이 포함됨) ──
     mdf = read_ws(MASTER_SHEET)
     mcol_map = {}
     for c in mdf.columns:
         cl = c.lower().replace(" ", "")
-        if "현장명" in cl:
-            mcol_map[c] = "현장명"
-        elif "센터장" in cl or "담당" in cl:
-            mcol_map[c] = "담당센터장"
+        if "공사명" in cl or "공사" in cl:
+            mcol_map[c] = "공사명"
+        elif "담당자" in cl or "센터장" in cl or "담당" in cl:
+            mcol_map[c] = "담당자"
         elif "면적" in cl:
             mcol_map[c] = "면적"
         elif "계약금액" in cl or "총계약" in cl:
@@ -88,11 +86,19 @@ def load_data():
             mcol_map[c] = "유형"
     mdf = mdf.rename(columns=mcol_map)
 
-    if "현장명" in mdf.columns:
-        mdf = mdf[mdf["현장명"].astype(str).str.strip() != ""]
+    if "공사명" in mdf.columns:
+        mdf = mdf[mdf["공사명"].astype(str).str.strip() != ""]
     else:
-        warnings.append(f"'{MASTER_SHEET}' 시트에 현장명 컬럼을 찾지 못했습니다.")
-        mdf = pd.DataFrame(columns=["현장명"])
+        warnings.append(f"'{MASTER_SHEET}' 시트에 공사명 컬럼을 찾지 못했습니다.")
+        mdf = pd.DataFrame(columns=["공사명"])
+
+    dup_mask = mdf.duplicated(subset=["공사명"], keep=False)
+    if dup_mask.sum() > 0:
+        dup_vals = sorted(mdf.loc[dup_mask, "공사명"].unique())
+        warnings.append(
+            f"현장마스터에 '공사명'이 중복 등록됐습니다: {dup_vals} "
+            f"— 계약금액/계약시작일이 합산/혼동될 수 있으니 정리하세요."
+        )
 
     for numcol in ["월예산", "면적", "총계약금액"]:
         if numcol in mdf.columns:
@@ -108,13 +114,13 @@ def load_data():
         if datecol in mdf.columns:
             mdf[datecol + "_dt"] = pd.to_datetime(mdf[datecol], errors="coerce")
 
-    # ── 작업내역 (통합 시트, 현장명으로 구분) ──────────────────
+    # ── 작업내역 (공사명으로만 구분) ──────────────────────────
     rdf = read_ws(LOG_SHEET)
     rcol_map = {}
     for c in rdf.columns:
         cl = c.lower().replace(" ", "")
-        if "현장명" in cl:
-            rcol_map[c] = "현장명"
+        if "공사명" in cl or "공사" in cl:
+            rcol_map[c] = "공사명"
         elif "날짜" in cl:
             rcol_map[c] = "날짜"
         elif "카테고리" in cl:
@@ -134,6 +140,10 @@ def load_data():
     else:
         warnings.append(f"'{LOG_SHEET}' 시트에 작업항목 컬럼을 찾지 못했습니다.")
 
+    if "공사명" not in rdf.columns:
+        warnings.append(f"'{LOG_SHEET}' 시트에 공사명 컬럼을 찾지 못했습니다.")
+        rdf["공사명"] = ""
+
     if "금액" in rdf.columns:
         parsed = rdf["금액"].apply(clean_number)
         bad = rdf.loc[parsed.isna() & rdf["금액"].astype(str).str.strip().ne(""), "금액"]
@@ -149,28 +159,21 @@ def load_data():
         if bad_dates.sum() > 0:
             warnings.append(f"작업내역의 '날짜' 값 중 인식 못한 값 {int(bad_dates.sum())}건이 있습니다.")
         rdf["날짜"] = rdf["날짜_dt"].dt.strftime("%Y-%m-%d").fillna(rdf["날짜"])
-
-        def week_label(d):
-            if pd.isna(d):
-                return ""
-            return f"{d.strftime('%Y-%m')} {((d.day - 1) // 7) + 1}주"
-
-        rdf["주차"] = rdf["날짜_dt"].apply(week_label)
     else:
         rdf["날짜_dt"] = pd.NaT
-        rdf["주차"] = ""
 
-    if "현장명" in rdf.columns and "현장명" in mdf.columns:
-        unknown_sites = set(rdf["현장명"].dropna().unique()) - set(mdf["현장명"].dropna().unique())
-        unknown_sites.discard("")
-        if unknown_sites:
-            unknown_amt = rdf[rdf["현장명"].isin(unknown_sites)]["금액"].sum()
+    # 공사명이 현장마스터에 없는 행 — 원가 집계엔 포함되지만 계약금액을 못 찾음 (문자열이 한 글자만 달라도 여기 걸림)
+    if "공사명" in rdf.columns and "공사명" in mdf.columns:
+        unknown = set(rdf["공사명"].dropna().unique()) - set(mdf["공사명"].dropna().unique())
+        unknown.discard("")
+        if unknown:
+            unknown_amt = rdf[rdf["공사명"].isin(unknown)]["금액"].sum()
             warnings.append(
-                f"현장마스터에 없는 현장명이 작업내역에 있습니다: {sorted(unknown_sites)} "
-                f"— 원가 집계에는 포함되지만 총계약금액이 없어 이윤율은 계산되지 않습니다(총 {unknown_amt:,.0f}원)."
+                f"현장마스터에 없는 공사명이 작업내역에 있습니다: {sorted(unknown)} "
+                f"— 원가 집계에는 포함되지만 계약금액이 없어 이윤율은 계산되지 않습니다(총 {unknown_amt:,.0f}원). "
+                f"오타로 인한 불일치일 수 있으니 문자열을 정확히 확인하세요."
             )
 
-    # 상태가 완료/예정이 아닌(빈 값 포함) 행 — 어디 집계에도 안 잡히고 유실됨
     if "상태" in rdf.columns:
         bad_status_mask = ~rdf["상태"].isin(["완료", "예정"])
         if bad_status_mask.sum() > 0:
@@ -180,7 +183,6 @@ def load_data():
                 f"(금액 합계 {bad_status_amt:,.0f}원) — 완료/예정 어느 집계에도 안 잡힙니다."
             )
 
-    # 카테고리가 재료비/노무비/경비 중 하나가 아닌(빈 값 포함) '완료' 행 — 원가 집계에서 누락되어 이윤이 과대 계산됨
     if "카테고리" in rdf.columns and "상태" in rdf.columns:
         done = rdf[rdf["상태"] == "완료"]
         bad_cat_mask = ~done["카테고리"].isin(COST_CATEGORIES)
@@ -203,48 +205,35 @@ def fmt_pct(n):
     return f"{n:.1f}%" if n is not None else "N/A"
 
 
-def get_contract_total(mdf, site_name):
-    row = mdf[mdf["현장명"] == site_name] if "현장명" in mdf.columns else pd.DataFrame()
-    if row.empty or "총계약금액" not in row.columns:
+def get_contract_total(mdf, project_name):
+    df = mdf[mdf["공사명"] == project_name] if "공사명" in mdf.columns else pd.DataFrame()
+    if df.empty or "총계약금액" not in df.columns:
         return 0
-    return float(row["총계약금액"].values[0])
+    return float(df["총계약금액"].sum())
 
 
-def get_contract_start(mdf, site_name):
-    row = mdf[mdf["현장명"] == site_name] if "현장명" in mdf.columns else pd.DataFrame()
-    if row.empty or "계약시작_dt" not in row.columns:
+def get_contract_start(mdf, project_name):
+    df = mdf[mdf["공사명"] == project_name] if "공사명" in mdf.columns else pd.DataFrame()
+    if df.empty or "계약시작_dt" not in df.columns:
         return None
-    val = row["계약시작_dt"].values[0]
-    return pd.Timestamp(val) if pd.notna(val) else None
+    vals = df["계약시작_dt"].dropna()
+    return pd.Timestamp(vals.min()) if not vals.empty else None
 
 
-def cost_breakdown(rdf, site_name=None, since=None, year=None):
-    """상태=완료 기준, since 이후(계약시작일 이후) 누적 원가를 재료비/노무비/경비(+미분류)로 분해.
-    카테고리가 셋 중 하나가 아닌 완료 건도 '미분류'로 합계에 포함시켜, 분류 누락 때문에
-    원가가 축소되고 이윤이 부풀려지는 일이 없도록 한다.
-    year를 지정하면 해당 연도의 완료 건만으로 원가를 좁힌다(매출은 별도 처리 — 계약금액은 연도별로 안 나뉨)."""
+def cost_breakdown(rdf, project_name=None, since=None, year=None):
     df = rdf.copy()
     if "상태" in df.columns:
         df = df[df["상태"] == "완료"]
-    if site_name is not None and "현장명" in df.columns:
-        df = df[df["현장명"] == site_name]
+    if project_name is not None and "공사명" in df.columns:
+        df = df[df["공사명"] == project_name]
     if since is not None and "날짜_dt" in df.columns:
         df = df[df["날짜_dt"] >= since]
     if year is not None and "날짜_dt" in df.columns:
         df = df[df["날짜_dt"].dt.year == year]
-    result = {}
-    for cat in COST_CATEGORIES:
-        result[cat] = df[df["카테고리"] == cat]["금액"].sum() if "카테고리" in df.columns else 0
-    if "카테고리" in df.columns:
-        result["미분류"] = df[~df["카테고리"].isin(COST_CATEGORIES)]["금액"].sum()
-    else:
-        result["미분류"] = df["금액"].sum()
-    result["합계"] = result["재료비"] + result["노무비"] + result["경비"] + result["미분류"]
-    return result
+    return cost_breakdown_from_df(df)
 
 
 def cost_breakdown_from_df(df):
-    """이미 필터링된 df(완료 상태, 현장/기간 필터 적용됨)에서 재료비/노무비/경비/미분류/합계 계산."""
     result = {}
     for cat in COST_CATEGORIES:
         result[cat] = df[df["카테고리"] == cat]["금액"].sum() if "카테고리" in df.columns else 0
@@ -262,9 +251,9 @@ def profit(revenue, cost):
 # ── 사이드바 ──────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🌳 SaveTree")
-    st.markdown("##### 현장 원가 관리 시스템")
+    st.markdown("##### 공사 원가 관리 시스템")
     st.divider()
-    menu = st.radio("메뉴", ["📊 대시보드", "📋 작업 내역", "📍 현장 현황", "📄 보고서"], label_visibility="hidden")
+    menu = st.radio("메뉴", ["📊 대시보드", "📋 작업 내역", "📄 보고서"], label_visibility="hidden")
     st.divider()
     if st.button("🔄 데이터 새로고침", use_container_width=True):
         st.cache_data.clear()
@@ -281,17 +270,16 @@ except Exception as e:
 for w in load_warnings:
     st.sidebar.warning(w)
 
-SITES = mdf.to_dict("records") if not mdf.empty else []
-known_site_names = set(mdf["현장명"].dropna().unique()) if "현장명" in mdf.columns else set()
-logged_site_names = set(rdf["현장명"].dropna().unique()) if "현장명" in rdf.columns else set()
-logged_site_names.discard("")
+PROJECTS = mdf.to_dict("records") if not mdf.empty else []
+known_projects = set(mdf["공사명"].dropna().unique()) if "공사명" in mdf.columns else set()
+logged_projects = set(rdf["공사명"].dropna().unique()) if "공사명" in rdf.columns else set()
+logged_projects.discard("")
 
-# 현장마스터에 없지만 작업내역에는 있는 현장 — 원가 집계엔 포함하되 계약금액 없음을 명시
-unregistered_sites = sorted(logged_site_names - known_site_names)
-for sname in unregistered_sites:
-    SITES.append({"현장명": sname, "담당센터장": "(미등록)", "면적": 0, "총계약금액": 0})
+unregistered_projects = sorted(logged_projects - known_projects)
+for pname in unregistered_projects:
+    PROJECTS.append({"공사명": pname, "담당자": "(미등록)", "면적": 0, "총계약금액": 0})
 
-site_names = sorted(known_site_names | logged_site_names)
+project_names = sorted(known_projects | logged_projects)
 
 _done_for_years = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
 ALL_YEARS = sorted(_done_for_years["날짜_dt"].dropna().dt.year.unique().tolist()) if "날짜_dt" in _done_for_years.columns and not _done_for_years.empty else []
@@ -307,9 +295,9 @@ if menu == "📊 대시보드":
 
     total_revenue = mdf["총계약금액"].sum() if "총계약금액" in mdf.columns else 0
     total_cost = 0
-    for sname in site_names:
-        since = get_contract_start(mdf, sname)
-        total_cost += cost_breakdown(rdf, sname, since, year=top_year)["합계"]
+    for p in PROJECTS:
+        since = get_contract_start(mdf, p["공사명"])
+        total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
     today = pd.Timestamp(datetime.now().date())
@@ -333,21 +321,21 @@ if menu == "📊 대시보드":
         st.caption(f"⚠️ 참고용: 원가는 {top_year_sel}년만 반영했지만 총계약금액은 계약 전체 기준이라, 계약이 여러 해에 걸치면 이 이윤율은 실제보다 높게 나옵니다.")
 
     st.divider()
-    st.subheader("현장별 이윤 현황")
+    st.subheader("공사별 이윤 현황")
     table_year_sel = st.selectbox("연도 (원가 기준)", ["전체"] + [str(y) for y in ALL_YEARS], key="table_year")
     table_year = int(table_year_sel) if table_year_sel != "전체" else None
     if table_year:
-        st.caption(f"⚠️ 참고용: 원가는 {table_year_sel}년만, 총계약금액은 계약 전체 기준 — 다년 계약이면 이윤율이 실제보다 높게 나옵니다.")
+        st.caption(f"⚠️ 참고용: 원가는 {table_year_sel}년만, 총계약금액은 계약 전체 기준입니다.")
 
-    site_rows = []
-    for site in SITES:
-        sname = site.get("현장명", "")
-        revenue = get_contract_total(mdf, sname)
-        since = get_contract_start(mdf, sname)
-        cb = cost_breakdown(rdf, sname, since, year=table_year)
+    proj_rows = []
+    for p in PROJECTS:
+        pname = p["공사명"]
+        revenue = get_contract_total(mdf, pname)
+        since = get_contract_start(mdf, pname)
+        cb = cost_breakdown(rdf, pname, since, year=table_year)
         margin, rate = profit(revenue, cb["합계"])
-        site_rows.append({
-            "현장명": sname,
+        proj_rows.append({
+            "공사명": pname,
             "총계약금액": fmt_won(revenue),
             "재료비": fmt_won(cb["재료비"]),
             "노무비": fmt_won(cb["노무비"]),
@@ -357,29 +345,28 @@ if menu == "📊 대시보드":
             "이윤": fmt_won(margin),
             "이윤율": fmt_pct(rate),
         })
-    if site_rows:
-        st.dataframe(pd.DataFrame(site_rows), use_container_width=True, hide_index=True)
+    if proj_rows:
+        st.dataframe(pd.DataFrame(proj_rows), use_container_width=True, hide_index=True)
     else:
-        st.info("표시할 현장이 없습니다.")
+        st.info("표시할 공사가 없습니다.")
 
     st.divider()
-    st.subheader("연도-월-현장별 원가 조회")
+    st.subheader("연도-월-공사별 원가 조회")
     st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/미분류)만 조회합니다.")
     done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
-    years = sorted(done_all["날짜_dt"].dropna().dt.year.unique().tolist()) if "날짜_dt" in done_all.columns and not done_all.empty else []
 
     fc1, fc2, fc3 = st.columns(3)
-    year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in years])
-    month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)])
-    site_sel = fc3.selectbox("현장 ", ["전체"] + site_names)  # 뒤 공백: 위쪽 '현장' selectbox와 key 충돌 방지
+    year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in ALL_YEARS], key="q_year")
+    month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)], key="q_month")
+    proj_sel = fc3.selectbox("공사명", ["전체"] + project_names, key="q_project")
 
     q = done_all.copy()
     if year_sel != "전체" and "날짜_dt" in q.columns:
         q = q[q["날짜_dt"].dt.year == int(year_sel)]
     if month_sel != "전체" and "날짜_dt" in q.columns:
         q = q[q["날짜_dt"].dt.month == int(month_sel.replace("월", ""))]
-    if site_sel != "전체" and "현장명" in q.columns:
-        q = q[q["현장명"] == site_sel]
+    if proj_sel != "전체" and "공사명" in q.columns:
+        q = q[q["공사명"] == proj_sel]
 
     qcb = cost_breakdown_from_df(q)
     qc1, qc2, qc3, qc4, qc5 = st.columns(5)
@@ -389,8 +376,8 @@ if menu == "📊 대시보드":
     qc4.metric("미분류", fmt_won(qcb["미분류"]))
     qc5.metric("합계", fmt_won(qcb["합계"]))
 
-    if "현장명" in q.columns and not q.empty:
-        st.bar_chart(q.groupby("현장명")["금액"].sum())
+    if "공사명" in q.columns and not q.empty:
+        st.bar_chart(q.groupby("공사명")["금액"].sum())
 
     st.divider()
     st.subheader("예정 작업 (다음 30일)")
@@ -399,7 +386,7 @@ if menu == "📊 대시보드":
         for i, (_, row) in enumerate(upcoming.head(6).iterrows()):
             with cols3[i % 3]:
                 with st.container(border=True):
-                    st.caption(f"📅 {row.get('날짜','')} · {row.get('현장명','')}")
+                    st.caption(f"📅 {row.get('날짜','')} · {row.get('공사명','')}")
                     st.markdown(f"**{row.get('작업항목','')}**")
                     a, b = st.columns(2)
                     a.caption(row.get("카테고리", ""))
@@ -412,14 +399,14 @@ elif menu == "📋 작업 내역":
     st.title("📋 작업 내역")
 
     c1, c2, c3, c4 = st.columns(4)
-    site_filter = c1.selectbox("현장", ["전체"] + site_names)
+    proj_filter = c1.selectbox("공사명", ["전체"] + project_names)
     status_filter = c2.selectbox("상태", ["전체", "완료", "예정"])
     cat_filter = c3.selectbox("카테고리", ["전체"] + COST_CATEGORIES)
     search = c4.text_input("작업명 검색")
 
     filtered = rdf.copy()
-    if site_filter != "전체" and "현장명" in filtered.columns:
-        filtered = filtered[filtered["현장명"] == site_filter]
+    if proj_filter != "전체" and "공사명" in filtered.columns:
+        filtered = filtered[filtered["공사명"] == proj_filter]
     if status_filter != "전체" and "상태" in filtered.columns:
         filtered = filtered[filtered["상태"] == status_filter]
     if cat_filter != "전체" and "카테고리" in filtered.columns:
@@ -430,61 +417,18 @@ elif menu == "📋 작업 내역":
     total = filtered["금액"].sum() if "금액" in filtered.columns else 0
     st.caption(f"총 {len(filtered)}건 · 합계: **{fmt_won(total)}**")
 
-    show = [c for c in ["날짜", "현장명", "카테고리", "작업항목", "금액", "상태", "비고"] if c in filtered.columns]
+    show = [c for c in ["날짜", "공사명", "카테고리", "작업항목", "금액", "상태", "비고"] if c in filtered.columns]
     display_df = filtered[show].sort_values("날짜", ascending=False).reset_index(drop=True) if "날짜" in show else filtered[show].reset_index(drop=True)
     if "금액" in display_df.columns:
         display_df["금액"] = display_df["금액"].apply(fmt_won)
     st.dataframe(display_df, use_container_width=True, height=500)
-
-# ── 현장 현황 ─────────────────────────────────────────────────────────────
-elif menu == "📍 현장 현황":
-    st.title("📍 현장 현황")
-
-    if not SITES:
-        st.info("현장마스터 시트에 등록된 현장이 없습니다.")
-
-    for site in SITES:
-        sname = site.get("현장명", "")
-        revenue = get_contract_total(mdf, sname)
-        since = get_contract_start(mdf, sname)
-        cb = cost_breakdown(rdf, sname, since)
-        margin, rate = profit(revenue, cb["합계"])
-
-        with st.expander(f"🌳 {sname} — 이윤율 {fmt_pct(rate)}", expanded=True):
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("담당 센터장", site.get("담당센터장", ""))
-            c2.metric("현장 면적", f"{int(site.get('면적', 0)):,}㎡")
-            c3.metric("총계약금액", fmt_won(revenue))
-            c4.metric("누적원가", fmt_won(cb["합계"]))
-
-            c5, c6, c7, c8, c9 = st.columns(5)
-            c5.metric("재료비", fmt_won(cb["재료비"]))
-            c6.metric("노무비", fmt_won(cb["노무비"]))
-            c7.metric("경비", fmt_won(cb["경비"]))
-            c8.metric("미분류", fmt_won(cb["미분류"]), "재분류 필요" if cb["미분류"] > 0 else None)
-            c9.metric("이윤", fmt_won(margin), fmt_pct(rate))
-
-            if revenue > 0:
-                st.progress(min(cb["합계"] / revenue, 1.0), text=f"원가율 {fmt_pct(round(cb['합계']/revenue*100,1))}")
-            else:
-                st.caption("총계약금액이 입력되지 않아 원가율을 표시할 수 없습니다.")
-
-            srecs = rdf[(rdf["현장명"] == sname) & (rdf["상태"] == "완료")] if "현장명" in rdf.columns and "상태" in rdf.columns else pd.DataFrame()
-            if "카테고리" in srecs.columns and not srecs.empty:
-                cat_sum = srecs.assign(
-                    카테고리=srecs["카테고리"].where(srecs["카테고리"].isin(COST_CATEGORIES), "미분류")
-                ).groupby("카테고리")["금액"].sum()
-                if not cat_sum.empty:
-                    st.bar_chart(cat_sum)
-            else:
-                st.caption("해당 현장의 완료 데이터가 없습니다.")
 
 # ── 보고서 ────────────────────────────────────────────────────────────────
 elif menu == "📄 보고서":
     st.title("📄 보고서")
 
     c1, c2 = st.columns(2)
-    rep_site = c1.selectbox("현장", ["전체"] + site_names)
+    rep_proj = c1.selectbox("공사명", ["전체"] + project_names)
     use_range = c2.checkbox("기간 직접 지정 (미체크 시 계약 시작일부터 누적)")
 
     date_from, date_to = None, None
@@ -493,31 +437,22 @@ elif menu == "📄 보고서":
         date_from = pd.Timestamp(dc1.date_input("시작일"))
         date_to = pd.Timestamp(dc2.date_input("종료일"))
 
-    if rep_site == "전체":
-        revenue = mdf["총계약금액"].sum() if "총계약금액" in mdf.columns else 0
-        cost_total = {"재료비": 0, "노무비": 0, "경비": 0, "미분류": 0, "합계": 0}
-        for sname in site_names:
-            since = get_contract_start(mdf, sname) if not use_range else date_from
-            cb = cost_breakdown(rdf, sname, since)
-            if use_range and date_to is not None:
-                # 종료일 상한도 적용 (전체 기간 재계산: since~date_to)
-                df_tmp = rdf[(rdf["현장명"] == sname) & (rdf["상태"] == "완료")]
-                if "날짜_dt" in df_tmp.columns:
-                    df_tmp = df_tmp[(df_tmp["날짜_dt"] >= date_from) & (df_tmp["날짜_dt"] <= date_to)]
-                cb = cost_breakdown_from_df(df_tmp)
-            for k in cost_total:
-                cost_total[k] += cb[k]
-        cb = cost_total
-    else:
-        revenue = get_contract_total(mdf, rep_site)
-        since = get_contract_start(mdf, rep_site) if not use_range else date_from
+    target_projects = project_names if rep_proj == "전체" else [rep_proj]
+
+    revenue = sum(get_contract_total(mdf, p) for p in target_projects)
+    cost_total = {"재료비": 0, "노무비": 0, "경비": 0, "미분류": 0, "합계": 0}
+    for p in target_projects:
+        since = get_contract_start(mdf, p) if not use_range else date_from
         if use_range and date_to is not None:
-            df_tmp = rdf[(rdf["현장명"] == rep_site) & (rdf["상태"] == "완료")]
+            df_tmp = rdf[(rdf["공사명"] == p) & (rdf["상태"] == "완료")]
             if "날짜_dt" in df_tmp.columns:
                 df_tmp = df_tmp[(df_tmp["날짜_dt"] >= date_from) & (df_tmp["날짜_dt"] <= date_to)]
             cb = cost_breakdown_from_df(df_tmp)
         else:
-            cb = cost_breakdown(rdf, rep_site, since)
+            cb = cost_breakdown(rdf, p, since)
+        for k in cost_total:
+            cost_total[k] += cb[k]
+    cb = cost_total
 
     margin, rate = profit(revenue, cb["합계"])
 
@@ -531,12 +466,12 @@ elif menu == "📄 보고서":
     recs = rdf.copy()
     if "상태" in recs.columns:
         recs = recs[recs["상태"] == "완료"]
-    if rep_site != "전체" and "현장명" in recs.columns:
-        recs = recs[recs["현장명"] == rep_site]
+    if rep_proj != "전체" and "공사명" in recs.columns:
+        recs = recs[recs["공사명"] == rep_proj]
     if use_range and date_from is not None and date_to is not None and "날짜_dt" in recs.columns:
         recs = recs[(recs["날짜_dt"] >= date_from) & (recs["날짜_dt"] <= date_to)]
 
-    show = [c for c in ["날짜", "현장명", "카테고리", "작업항목", "금액"] if c in recs.columns]
+    show = [c for c in ["날짜", "공사명", "카테고리", "작업항목", "금액"] if c in recs.columns]
     rep_display = recs[show].reset_index(drop=True)
     if "금액" in rep_display.columns:
         rep_display["금액"] = rep_display["금액"].apply(fmt_won)
