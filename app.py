@@ -218,10 +218,11 @@ def get_contract_start(mdf, site_name):
     return pd.Timestamp(val) if pd.notna(val) else None
 
 
-def cost_breakdown(rdf, site_name=None, since=None):
+def cost_breakdown(rdf, site_name=None, since=None, year=None):
     """상태=완료 기준, since 이후(계약시작일 이후) 누적 원가를 재료비/노무비/경비(+미분류)로 분해.
     카테고리가 셋 중 하나가 아닌 완료 건도 '미분류'로 합계에 포함시켜, 분류 누락 때문에
-    원가가 축소되고 이윤이 부풀려지는 일이 없도록 한다."""
+    원가가 축소되고 이윤이 부풀려지는 일이 없도록 한다.
+    year를 지정하면 해당 연도의 완료 건만으로 원가를 좁힌다(매출은 별도 처리 — 계약금액은 연도별로 안 나뉨)."""
     df = rdf.copy()
     if "상태" in df.columns:
         df = df[df["상태"] == "완료"]
@@ -229,6 +230,8 @@ def cost_breakdown(rdf, site_name=None, since=None):
         df = df[df["현장명"] == site_name]
     if since is not None and "날짜_dt" in df.columns:
         df = df[df["날짜_dt"] >= since]
+    if year is not None and "날짜_dt" in df.columns:
+        df = df[df["날짜_dt"].dt.year == year]
     result = {}
     for cat in COST_CATEGORIES:
         result[cat] = df[df["카테고리"] == cat]["금액"].sum() if "카테고리" in df.columns else 0
@@ -290,16 +293,23 @@ for sname in unregistered_sites:
 
 site_names = sorted(known_site_names | logged_site_names)
 
+_done_for_years = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
+ALL_YEARS = sorted(_done_for_years["날짜_dt"].dropna().dt.year.unique().tolist()) if "날짜_dt" in _done_for_years.columns and not _done_for_years.empty else []
+
 # ── 대시보드 ──────────────────────────────────────────────────────────────
 if menu == "📊 대시보드":
     st.title("📊 대시보드")
-    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)")
+
+    dc1, _ = st.columns([1, 4])
+    top_year_sel = dc1.selectbox("연도 (원가 기준, 총계약금액은 계약 전체 고정)", ["전체"] + [str(y) for y in ALL_YEARS], key="top_year")
+    top_year = int(top_year_sel) if top_year_sel != "전체" else None
+    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)" + (f" · 원가는 {top_year_sel}년만 필터링됨" if top_year else ""))
 
     total_revenue = mdf["총계약금액"].sum() if "총계약금액" in mdf.columns else 0
     total_cost = 0
     for sname in site_names:
         since = get_contract_start(mdf, sname)
-        total_cost += cost_breakdown(rdf, sname, since)["합계"]
+        total_cost += cost_breakdown(rdf, sname, since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
     today = pd.Timestamp(datetime.now().date())
@@ -319,15 +329,22 @@ if menu == "📊 대시보드":
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
+    if top_year:
+        st.caption(f"⚠️ 참고용: 원가는 {top_year_sel}년만 반영했지만 총계약금액은 계약 전체 기준이라, 계약이 여러 해에 걸치면 이 이윤율은 실제보다 높게 나옵니다.")
 
     st.divider()
     st.subheader("현장별 이윤 현황")
+    table_year_sel = st.selectbox("연도 (원가 기준)", ["전체"] + [str(y) for y in ALL_YEARS], key="table_year")
+    table_year = int(table_year_sel) if table_year_sel != "전체" else None
+    if table_year:
+        st.caption(f"⚠️ 참고용: 원가는 {table_year_sel}년만, 총계약금액은 계약 전체 기준 — 다년 계약이면 이윤율이 실제보다 높게 나옵니다.")
+
     site_rows = []
     for site in SITES:
         sname = site.get("현장명", "")
         revenue = get_contract_total(mdf, sname)
         since = get_contract_start(mdf, sname)
-        cb = cost_breakdown(rdf, sname, since)
+        cb = cost_breakdown(rdf, sname, since, year=table_year)
         margin, rate = profit(revenue, cb["합계"])
         site_rows.append({
             "현장명": sname,
@@ -374,30 +391,6 @@ if menu == "📊 대시보드":
 
     if "현장명" in q.columns and not q.empty:
         st.bar_chart(q.groupby("현장명")["금액"].sum())
-
-    st.divider()
-    cl, cr = st.columns([1.7, 1])
-    with cl:
-        st.subheader("주별 원가 추이")
-        act = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else rdf
-        if "주차" in act.columns and "현장명" in act.columns and not act.empty:
-            pivot = act.groupby(["주차", "현장명"])["금액"].sum().reset_index().pivot(
-                index="주차", columns="현장명", values="금액"
-            ).fillna(0)
-            st.bar_chart(pivot)
-        else:
-            st.caption("표시할 완료 데이터가 없습니다.")
-    with cr:
-        st.subheader("원가 3요소 구성 (+ 미분류)")
-        act = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else rdf
-        if "카테고리" in act.columns and not act.empty:
-            cat_sum = act.assign(
-                카테고리=act["카테고리"].where(act["카테고리"].isin(COST_CATEGORIES), "미분류")
-            ).groupby("카테고리")["금액"].sum()
-            if not cat_sum.empty:
-                st.bar_chart(cat_sum)
-            else:
-                st.caption("완료 데이터가 없습니다.")
 
     st.divider()
     st.subheader("예정 작업 (다음 30일)")
