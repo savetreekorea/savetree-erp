@@ -167,7 +167,7 @@ def load_data():
             unknown_amt = rdf[rdf["현장명"].isin(unknown_sites)]["금액"].sum()
             warnings.append(
                 f"현장마스터에 없는 현장명이 작업내역에 있습니다: {sorted(unknown_sites)} "
-                f"— 총 {unknown_amt:,.0f}원이 모든 집계(대시보드/현장현황/보고서)에서 제외됩니다."
+                f"— 원가 집계에는 포함되지만 총계약금액이 없어 이윤율은 계산되지 않습니다(총 {unknown_amt:,.0f}원)."
             )
 
     # 상태가 완료/예정이 아닌(빈 값 포함) 행 — 어디 집계에도 안 잡히고 유실됨
@@ -279,7 +279,16 @@ for w in load_warnings:
     st.sidebar.warning(w)
 
 SITES = mdf.to_dict("records") if not mdf.empty else []
-site_names = list(mdf["현장명"].dropna().unique()) if "현장명" in mdf.columns else []
+known_site_names = set(mdf["현장명"].dropna().unique()) if "현장명" in mdf.columns else set()
+logged_site_names = set(rdf["현장명"].dropna().unique()) if "현장명" in rdf.columns else set()
+logged_site_names.discard("")
+
+# 현장마스터에 없지만 작업내역에는 있는 현장 — 원가 집계엔 포함하되 계약금액 없음을 명시
+unregistered_sites = sorted(logged_site_names - known_site_names)
+for sname in unregistered_sites:
+    SITES.append({"현장명": sname, "담당센터장": "(미등록)", "면적": 0, "총계약금액": 0})
+
+site_names = sorted(known_site_names | logged_site_names)
 
 # ── 대시보드 ──────────────────────────────────────────────────────────────
 if menu == "📊 대시보드":
