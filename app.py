@@ -322,21 +322,58 @@ if menu == "📊 대시보드":
 
     st.divider()
     st.subheader("현장별 이윤 현황")
-    cols = st.columns(max(len(SITES), 1))
-    for i, site in enumerate(SITES):
+    site_rows = []
+    for site in SITES:
         sname = site.get("현장명", "")
         revenue = get_contract_total(mdf, sname)
         since = get_contract_start(mdf, sname)
         cb = cost_breakdown(rdf, sname, since)
         margin, rate = profit(revenue, cb["합계"])
-        with cols[i]:
-            st.markdown(f"**{sname}**")
-            if revenue > 0:
-                st.progress(min(cb["합계"] / revenue, 1.0))
-            a, b = st.columns(2)
-            a.metric("누적원가", fmt_won(cb["합계"]))
-            b.metric("이윤율", fmt_pct(rate))
-            st.caption(f"이윤 {fmt_won(margin)} · 재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else ""))
+        site_rows.append({
+            "현장명": sname,
+            "총계약금액": fmt_won(revenue),
+            "재료비": fmt_won(cb["재료비"]),
+            "노무비": fmt_won(cb["노무비"]),
+            "경비": fmt_won(cb["경비"]),
+            "미분류": fmt_won(cb["미분류"]) + (" ⚠️" if cb["미분류"] > 0 else ""),
+            "누적원가": fmt_won(cb["합계"]),
+            "이윤": fmt_won(margin),
+            "이윤율": fmt_pct(rate),
+        })
+    if site_rows:
+        st.dataframe(pd.DataFrame(site_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("표시할 현장이 없습니다.")
+
+    st.divider()
+    st.subheader("연도-월-현장별 원가 조회")
+    st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/미분류)만 조회합니다.")
+    done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
+    years = sorted(done_all["날짜_dt"].dropna().dt.year.unique().tolist()) if "날짜_dt" in done_all.columns and not done_all.empty else []
+
+    fc1, fc2, fc3 = st.columns(3)
+    year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in years])
+    month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)])
+    site_sel = fc3.selectbox("현장 ", ["전체"] + site_names)  # 뒤 공백: 위쪽 '현장' selectbox와 key 충돌 방지
+
+    q = done_all.copy()
+    if year_sel != "전체" and "날짜_dt" in q.columns:
+        q = q[q["날짜_dt"].dt.year == int(year_sel)]
+    if month_sel != "전체" and "날짜_dt" in q.columns:
+        q = q[q["날짜_dt"].dt.month == int(month_sel.replace("월", ""))]
+    if site_sel != "전체" and "현장명" in q.columns:
+        q = q[q["현장명"] == site_sel]
+
+    qcb = cost_breakdown_from_df(q)
+    qc1, qc2, qc3, qc4, qc5 = st.columns(5)
+    qc1.metric("재료비", fmt_won(qcb["재료비"]))
+    qc2.metric("노무비", fmt_won(qcb["노무비"]))
+    qc3.metric("경비", fmt_won(qcb["경비"]))
+    qc4.metric("미분류", fmt_won(qcb["미분류"]))
+    qc5.metric("합계", fmt_won(qcb["합계"]))
+
+    if "현장명" in q.columns and not q.empty:
+        st.bar_chart(q.groupby("현장명")["금액"].sum())
 
     st.divider()
     cl, cr = st.columns([1.7, 1])
