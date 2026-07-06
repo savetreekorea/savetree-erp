@@ -165,7 +165,7 @@ def load_data():
 
 
 def fmt_won(n):
-    return f"{float(n):,.2f}원"
+    return f"{float(n) / 1000:,.1f}천원"
 
 
 def pct(a, b):
