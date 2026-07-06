@@ -165,7 +165,7 @@ def load_data():
 
 
 def fmt_won(n):
-    return f"{int(n):,}원"
+    return f"{float(n):,.2f}원"
 
 
 def pct(a, b):
@@ -217,7 +217,7 @@ if menu == "📊 대시보드":
 
     act = rdf.copy()
     if "상태" in act.columns:
-        act = act[act["상태"] == "실적"]
+        act = act[act["상태"] == "완료"]
     if "날짜" in act.columns:
         act = act[act["날짜"].astype(str).str.startswith(month)]
 
@@ -293,7 +293,7 @@ elif menu == "📋 작업 내역":
 
     c1, c2, c3, c4 = st.columns(4)
     site_filter = c1.selectbox("현장", ["전체"] + site_names)
-    status_filter = c2.selectbox("상태", ["전체", "실적", "예정"])
+    status_filter = c2.selectbox("상태", ["전체", "완료", "예정"])
     cat_filter = c3.selectbox("카테고리", ["전체", "작업비", "자재비", "인건비", "경비"])
     search = c4.text_input("작업명 검색")
 
@@ -311,13 +311,10 @@ elif menu == "📋 작업 내역":
     st.caption(f"총 {len(filtered)}건 · 합계: **{fmt_won(total)}**")
 
     show = [c for c in ["날짜", "현장명", "카테고리", "작업항목", "금액", "상태", "비고"] if c in filtered.columns]
-    st.dataframe(
-        filtered[show].sort_values("날짜", ascending=False).reset_index(drop=True) if "날짜" in show else filtered[show].reset_index(drop=True),
-        use_container_width=True, height=500,
-        column_config={
-            "금액": st.column_config.NumberColumn("금액", format="%d원"),
-        }
-    )
+    display_df = filtered[show].sort_values("날짜", ascending=False).reset_index(drop=True) if "날짜" in show else filtered[show].reset_index(drop=True)
+    if "금액" in display_df.columns:
+        display_df["금액"] = display_df["금액"].apply(fmt_won)
+    st.dataframe(display_df, use_container_width=True, height=500)
 
 # ── 현장 현황 ─────────────────────────────────────────────────────────────
 elif menu == "📍 현장 현황":
@@ -329,7 +326,7 @@ elif menu == "📍 현장 현황":
     for site in SITES:
         sname = site.get("현장명", "")
         budget = get_budget(mdf, sname)
-        srecs = rdf[(rdf["현장명"] == sname) & (rdf["상태"] == "실적")] if "현장명" in rdf.columns and "상태" in rdf.columns else pd.DataFrame()
+        srecs = rdf[(rdf["현장명"] == sname) & (rdf["상태"] == "완료")] if "현장명" in rdf.columns and "상태" in rdf.columns else pd.DataFrame()
         actual = srecs["금액"].sum() if "금액" in srecs.columns else 0
         rate = pct(actual, budget)
 
@@ -357,7 +354,7 @@ elif menu == "📄 보고서":
     if "날짜" in recs.columns:
         recs = recs[recs["날짜"].astype(str).str.startswith(rep_month)]
     if "상태" in recs.columns:
-        recs = recs[recs["상태"] == "실적"]
+        recs = recs[recs["상태"] == "완료"]
     if rep_site != "전체" and "현장명" in recs.columns:
         recs = recs[recs["현장명"] == rep_site]
 
@@ -383,11 +380,8 @@ elif menu == "📄 보고서":
     st.divider()
     st.subheader("작업 상세 내역")
     show = [c for c in ["날짜", "현장명", "카테고리", "작업항목", "금액"] if c in recs.columns]
-    st.dataframe(
-        recs[show].reset_index(drop=True),
-        use_container_width=True,
-        column_config={
-            "금액": st.column_config.NumberColumn("금액", format="%d원"),
-        }
-    )
+    rep_display = recs[show].reset_index(drop=True)
+    if "금액" in rep_display.columns:
+        rep_display["금액"] = rep_display["금액"].apply(fmt_won)
+    st.dataframe(rep_display, use_container_width=True)
     st.caption(f"합계: **{fmt_won(total)}**")
