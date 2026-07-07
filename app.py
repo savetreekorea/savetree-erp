@@ -383,18 +383,23 @@ if menu == "📊 대시보드":
     st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/미분류)만 조회합니다.")
     done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
 
-    fc1, fc2, fc3 = st.columns(3)
+    fc1, fc2 = st.columns(2)
     year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in ALL_YEARS], key="q_year")
     month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)], key="q_month")
-    proj_sel = fc3.selectbox("공사명", ["전체"] + project_names, key="q_project")
+    proj_sel_list = st.multiselect(
+        "공사명 (입력해서 검색, 비교할 것만 남기고 지우면 됨)",
+        project_names,
+        default=project_names,
+        key="q_project_multi",
+    )
 
     q = done_all.copy()
     if year_sel != "전체" and "날짜_dt" in q.columns:
         q = q[q["날짜_dt"].dt.year == int(year_sel)]
     if month_sel != "전체" and "날짜_dt" in q.columns:
         q = q[q["날짜_dt"].dt.month == int(month_sel.replace("월", ""))]
-    if proj_sel != "전체" and "공사명" in q.columns:
-        q = q[q["공사명"] == proj_sel]
+    if "공사명" in q.columns:
+        q = q[q["공사명"].isin(proj_sel_list)]
 
     qcb = cost_breakdown_from_df(q)
     qc1, qc2, qc3, qc4, qc5 = st.columns(5)
@@ -405,7 +410,9 @@ if menu == "📊 대시보드":
     qc5.metric("합계", fmt_won(qcb["합계"]))
 
     if "공사명" in q.columns and not q.empty:
-        st.bar_chart(q.groupby("공사명")["금액"].sum())
+        st.bar_chart(q.groupby("공사명")["금액"].sum(), horizontal=True)
+    elif not proj_sel_list:
+        st.info("비교할 공사를 하나 이상 선택하세요.")
 
     st.divider()
     st.subheader("예정 작업 (다음 30일)")
