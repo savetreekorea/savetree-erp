@@ -3,6 +3,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="SaveTree ERP", page_icon="🌳", layout="wide")
 
@@ -21,6 +22,11 @@ MASTER_SHEET = "현장마스터"
 LOG_SHEET = "작업내역"
 
 COST_CATEGORIES = ["재료비", "노무비", "경비"]
+KST = ZoneInfo("Asia/Seoul")
+
+
+def now_kst():
+    return datetime.now(KST)
 
 
 @st.cache_resource
@@ -157,7 +163,13 @@ def load_data():
         rdf["날짜_dt"] = pd.to_datetime(rdf["날짜"], errors="coerce")
         bad_dates = rdf["날짜"].astype(str).str.strip().ne("") & rdf["날짜_dt"].isna()
         if bad_dates.sum() > 0:
-            warnings.append(f"작업내역의 '날짜' 값 중 인식 못한 값 {int(bad_dates.sum())}건이 있습니다.")
+            bad_rows = rdf.loc[bad_dates]
+            by_proj = bad_rows.groupby("공사명")["날짜"].apply(lambda s: sorted(set(s))[:3])
+            detail = "; ".join(f"{proj} {vals}" for proj, vals in by_proj.items())
+            warnings.append(
+                f"작업내역의 '날짜' 값 중 인식 못한 값 {int(bad_dates.sum())}건 — {detail} "
+                f"(해당 행은 완료여도 원가 집계·연도 필터에서 빠집니다)"
+            )
         rdf["날짜"] = rdf["날짜_dt"].dt.strftime("%Y-%m-%d").fillna(rdf["날짜"])
     else:
         rdf["날짜_dt"] = pd.NaT
@@ -177,21 +189,31 @@ def load_data():
     if "상태" in rdf.columns:
         bad_status_mask = ~rdf["상태"].isin(["완료", "예정"])
         if bad_status_mask.sum() > 0:
-            bad_status_amt = rdf.loc[bad_status_mask, "금액"].sum()
+            by_proj = (
+                rdf.loc[bad_status_mask]
+                .groupby("공사명")
+                .agg(건수=("금액", "size"), 금액합계=("금액", "sum"))
+            )
+            detail = "; ".join(f"{proj} {int(row['건수'])}건({row['금액합계']:,.0f}원)" for proj, row in by_proj.iterrows())
             warnings.append(
-                f"'상태'가 완료/예정 중 하나도 아닌 행 {int(bad_status_mask.sum())}건 "
-                f"(금액 합계 {bad_status_amt:,.0f}원) — 완료/예정 어느 집계에도 안 잡힙니다."
+                f"'상태'가 완료/예정 중 하나도 아닌 행이 있습니다 — {detail}. "
+                f"완료/예정 어느 집계에도 안 잡힙니다."
             )
 
     if "카테고리" in rdf.columns and "상태" in rdf.columns:
         done = rdf[rdf["상태"] == "완료"]
         bad_cat_mask = ~done["카테고리"].isin(COST_CATEGORIES)
         if bad_cat_mask.sum() > 0:
-            bad_cat_amt = done.loc[bad_cat_mask, "금액"].sum()
-            bad_cat_vals = sorted(set(done.loc[bad_cat_mask, "카테고리"].replace("", "(비어있음)").unique()))
+            by_proj = (
+                done.loc[bad_cat_mask]
+                .assign(카테고리표시=done.loc[bad_cat_mask, "카테고리"].replace("", "(비어있음)"))
+                .groupby("공사명")
+                .agg(건수=("금액", "size"), 금액합계=("금액", "sum"))
+            )
+            detail = "; ".join(f"{proj} {int(row['건수'])}건({row['금액합계']:,.0f}원)" for proj, row in by_proj.iterrows())
             warnings.append(
-                f"완료 상태인데 '카테고리'가 재료비/노무비/경비가 아닌 행 {int(bad_cat_mask.sum())}건 "
-                f"(금액 합계 {bad_cat_amt:,.0f}원, 값: {bad_cat_vals}) — 원가 집계에서 빠져 이윤이 실제보다 높게 나옵니다."
+                f"완료 상태인데 '카테고리'가 재료비/노무비/경비가 아닌 행이 있습니다 — {detail}. "
+                f"원가 집계에서 빠져 이윤이 실제보다 높게 나옵니다."
             )
 
     return mdf, rdf, warnings
@@ -258,7 +280,7 @@ with st.sidebar:
     if st.button("🔄 데이터 새로고침", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
-    st.caption(f"업데이트: {datetime.now().strftime('%H:%M:%S')}")
+    st.caption(f"업데이트: {now_kst().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────
 try:
@@ -300,7 +322,7 @@ if menu == "📊 대시보드":
         total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
-    today = pd.Timestamp(datetime.now().date())
+    today = pd.Timestamp(now_kst().date())
     if "상태" in rdf.columns and "날짜_dt" in rdf.columns:
         upcoming = rdf[
             (rdf["상태"] == "예정")
@@ -328,12 +350,15 @@ if menu == "📊 대시보드":
         st.caption(f"⚠️ 참고용: 원가는 {table_year_sel}년만, 총계약금액은 계약 전체 기준입니다.")
 
     proj_rows = []
+    any_unclassified = False
     for p in PROJECTS:
         pname = p["공사명"]
         revenue = get_contract_total(mdf, pname)
         since = get_contract_start(mdf, pname)
         cb = cost_breakdown(rdf, pname, since, year=table_year)
         margin, rate = profit(revenue, cb["합계"])
+        if cb["미분류"] > 0:
+            any_unclassified = True
         proj_rows.append({
             "공사명": pname,
             "총계약금액": fmt_won(revenue),
@@ -346,7 +371,10 @@ if menu == "📊 대시보드":
             "이윤율": fmt_pct(rate),
         })
     if proj_rows:
-        st.dataframe(pd.DataFrame(proj_rows), use_container_width=True, hide_index=True)
+        df_proj = pd.DataFrame(proj_rows)
+        if not any_unclassified:
+            df_proj = df_proj.drop(columns=["미분류"])
+        st.dataframe(df_proj, use_container_width=True, hide_index=True)
     else:
         st.info("표시할 공사가 없습니다.")
 
