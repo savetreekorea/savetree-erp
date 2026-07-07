@@ -387,9 +387,9 @@ if menu == "📊 대시보드":
     year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in ALL_YEARS], key="q_year")
     month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)], key="q_month")
     proj_sel_list = st.multiselect(
-        "공사명 (입력해서 검색, 비교할 것만 남기고 지우면 됨)",
+        "공사명 (입력해서 검색, 비교하고 싶은 것만 선택)",
         project_names,
-        default=project_names,
+        default=[],
         key="q_project_multi",
     )
 
