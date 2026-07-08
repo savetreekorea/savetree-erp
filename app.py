@@ -249,6 +249,27 @@ def get_contract_start(mdf, project_name):
     return pd.Timestamp(vals.min()) if not vals.empty else None
 
 
+def get_contract_end(mdf, project_name):
+    df = mdf[mdf["공사명"] == project_name] if "공사명" in mdf.columns else pd.DataFrame()
+    if df.empty or "계약종료_dt" not in df.columns:
+        return None
+    vals = df["계약종료_dt"].dropna()
+    return pd.Timestamp(vals.max()) if not vals.empty else None
+
+
+def project_active_in_year(mdf, project_name, year):
+    """계약 기간에 해당 연도가 포함되는지. 시작/종료일이 없으면 판단 불가로 보고 True(표시 유지)."""
+    if year is None:
+        return True
+    start = get_contract_start(mdf, project_name)
+    end = get_contract_end(mdf, project_name)
+    if start is not None and start.year > year:
+        return False
+    if end is not None and end.year < year:
+        return False
+    return True
+
+
 def cost_breakdown(rdf, project_name=None, since=None, year=None):
     df = rdf.copy()
     if "상태" in df.columns:
@@ -352,8 +373,12 @@ if menu == "📊 대시보드":
 
     proj_rows = []
     any_unclassified = False
+    excluded_count = 0
     for p in PROJECTS:
         pname = p["공사명"]
+        if not project_active_in_year(mdf, pname, table_year):
+            excluded_count += 1
+            continue
         revenue = get_contract_total(mdf, pname)
         since = get_contract_start(mdf, pname)
         cb = cost_breakdown(rdf, pname, since, year=table_year)
@@ -385,8 +410,13 @@ if menu == "📊 대시보드":
         styled = styled.hide(axis="columns", subset=["_완료"])
         styled = styled.hide(axis="index")
         st.dataframe(styled, use_container_width=True)
+        if excluded_count > 0:
+            st.caption(f"계약기간이 {top_year_sel}년과 겹치지 않는 공사 {excluded_count}건은 표에서 제외됐습니다.")
     else:
-        st.info("표시할 공사가 없습니다.")
+        if excluded_count > 0:
+            st.info(f"{top_year_sel}년에 계약기간이 겹치는 공사가 없습니다 (전체 {excluded_count}건 모두 제외됨).")
+        else:
+            st.info("표시할 공사가 없습니다.")
 
     st.divider()
     st.subheader("연도-월-공사별 원가 조회")
