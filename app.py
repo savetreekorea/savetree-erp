@@ -2,7 +2,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 st.set_page_config(page_title="SaveTree ERP", page_icon="🌳", layout="wide")
@@ -76,6 +76,8 @@ def load_data():
         cl = c.lower().replace(" ", "")
         if "공사명" in cl or "공사" in cl:
             mcol_map[c] = "공사명"
+        elif "완료여부" in cl or "공사완료" in cl:
+            mcol_map[c] = "완료여부"
         elif "담당자" in cl or "센터장" in cl or "담당" in cl:
             mcol_map[c] = "담당자"
         elif "면적" in cl:
@@ -97,6 +99,11 @@ def load_data():
     else:
         warnings.append(f"'{MASTER_SHEET}' 시트에 공사명 컬럼을 찾지 못했습니다.")
         mdf = pd.DataFrame(columns=["공사명"])
+
+    if "완료여부" in mdf.columns:
+        mdf["완료여부"] = mdf["완료여부"].astype(str).str.strip().str.upper().isin(["O", "ㅇ", "V", "TRUE", "완료"])
+    else:
+        mdf["완료여부"] = False
 
     dup_mask = mdf.duplicated(subset=["공사명"], keep=False)
     if dup_mask.sum() > 0:
@@ -310,8 +317,14 @@ ALL_YEARS = sorted(_done_for_years["날짜_dt"].dropna().dt.year.unique().tolist
 if menu == "📊 대시보드":
     st.title("📊 대시보드")
 
+    year_options = ["전체"] + [str(y) for y in ALL_YEARS]
+    current_year_str = str(now_kst().year)
+    default_year_idx = year_options.index(current_year_str) if current_year_str in year_options else 0
+
     dc1, _ = st.columns([1, 4])
-    top_year_sel = dc1.selectbox("연도 (원가 기준, 총계약금액은 계약 전체 고정)", ["전체"] + [str(y) for y in ALL_YEARS], key="top_year")
+    top_year_sel = dc1.selectbox(
+        "연도 (원가 기준, 총계약금액은 계약 전체 고정)", year_options, index=default_year_idx, key="top_year"
+    )
     top_year = int(top_year_sel) if top_year_sel != "전체" else None
     st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)" + (f" · 원가는 {top_year_sel}년만 필터링됨" if top_year else ""))
 
@@ -322,20 +335,10 @@ if menu == "📊 대시보드":
         total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
-    today = pd.Timestamp(now_kst().date())
-    if "상태" in rdf.columns and "날짜_dt" in rdf.columns:
-        upcoming = rdf[
-            (rdf["상태"] == "예정")
-            & (rdf["날짜_dt"] >= today)
-            & (rdf["날짜_dt"] <= today + timedelta(days=30))
-        ].sort_values("날짜_dt")
-    else:
-        upcoming = pd.DataFrame()
-
     c1, c2, c3 = st.columns(3)
     c1.metric("총계약금액", fmt_won(total_revenue))
-    c2.metric("누적 원가", fmt_won(total_cost), f"이윤 {fmt_won(total_margin)} ({fmt_pct(total_rate)})")
-    c3.metric("예정 작업", f"{len(upcoming)}건", "향후 30일")
+    c2.metric("누적 원가", fmt_won(total_cost))
+    c3.metric("이윤", fmt_won(total_margin), fmt_pct(total_rate))
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
@@ -344,10 +347,8 @@ if menu == "📊 대시보드":
 
     st.divider()
     st.subheader("공사별 이윤 현황")
-    table_year_sel = st.selectbox("연도 (원가 기준)", ["전체"] + [str(y) for y in ALL_YEARS], key="table_year")
-    table_year = int(table_year_sel) if table_year_sel != "전체" else None
-    if table_year:
-        st.caption(f"⚠️ 참고용: 원가는 {table_year_sel}년만, 총계약금액은 계약 전체 기준입니다.")
+    st.caption(f"연도: {top_year_sel} (상단 드롭다운과 연동) · 회색 배경 = 현장마스터에 완료여부 O로 표시된 공사")
+    table_year = top_year
 
     proj_rows = []
     any_unclassified = False
@@ -369,12 +370,21 @@ if menu == "📊 대시보드":
             "누적원가": fmt_won(cb["합계"]),
             "이윤": fmt_won(margin),
             "이윤율": fmt_pct(rate),
+            "_완료": bool(p.get("완료여부", False)),
         })
     if proj_rows:
         df_proj = pd.DataFrame(proj_rows)
         if not any_unclassified:
             df_proj = df_proj.drop(columns=["미분류"])
-        st.dataframe(df_proj, use_container_width=True, hide_index=True)
+
+        def _highlight_done(row):
+            color = "background-color: #e5e5e5" if row["_완료"] else ""
+            return [color] * len(row)
+
+        styled = df_proj.style.apply(_highlight_done, axis=1)
+        styled = styled.hide(axis="columns", subset=["_완료"])
+        styled = styled.hide(axis="index")
+        st.dataframe(styled, use_container_width=True)
     else:
         st.info("표시할 공사가 없습니다.")
 
@@ -417,22 +427,6 @@ if menu == "📊 대시보드":
         st.bar_chart(q.groupby("공사명")["금액"].sum(), horizontal=True)
     elif not proj_sel_list:
         st.info("비교할 공사를 하나 이상 선택하세요.")
-
-    st.divider()
-    st.subheader("예정 작업 (다음 30일)")
-    if not upcoming.empty:
-        cols3 = st.columns(3)
-        for i, (_, row) in enumerate(upcoming.head(6).iterrows()):
-            with cols3[i % 3]:
-                with st.container(border=True):
-                    st.caption(f"📅 {row.get('날짜','')}")
-                    st.caption(f"🏗️ {row.get('공사명','')}")
-                    st.markdown(f"**{row.get('작업항목','')}**")
-                    a, b = st.columns(2)
-                    a.caption(row.get("카테고리", ""))
-                    b.markdown(f"**{fmt_won(row.get('금액', 0))}**")
-    else:
-        st.info("예정 작업이 없습니다.")
 
 # ── 작업 내역 ─────────────────────────────────────────────────────────────
 elif menu == "📋 작업 내역":
