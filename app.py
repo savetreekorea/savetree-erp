@@ -347,6 +347,7 @@ if menu == "📊 대시보드":
         "연도 (계약기간이 겹치는 공사만 집계)", year_options, index=default_year_idx, key="top_year"
     )
     top_year = int(top_year_sel) if top_year_sel != "전체" else None
+    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)" + (f" · {top_year_sel}년과 계약기간이 겹치는 공사만 집계됨" if top_year else ""))
 
     active_projects = [p for p in PROJECTS if project_active_in_year(mdf, p["공사명"], top_year)]
     total_revenue = sum(get_contract_total(mdf, p["공사명"]) for p in active_projects)
@@ -367,8 +368,11 @@ if menu == "📊 대시보드":
     st.divider()
     st.subheader("공사별 이윤 현황")
     st.caption(f"연도: {top_year_sel} (상단 드롭다운과 연동) · 회색 배경 = 현장마스터에 완료여부 O로 표시된 공사")
-    search_proj = st.selectbox("공사명 검색", ["전체"] + project_names, key="table_search")
     table_year = top_year
+    year_filtered_names = sorted(p["공사명"] for p in PROJECTS if project_active_in_year(mdf, p["공사명"], table_year))
+    search_proj = st.selectbox(
+        "공사명 검색 (입력하면 목록이 좁혀짐)", ["전체"] + year_filtered_names, key=f"table_search_{top_year_sel}"
+    )
 
     proj_rows = []
     done_flags = []
