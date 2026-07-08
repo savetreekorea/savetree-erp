@@ -402,12 +402,16 @@ if menu == "📊 대시보드":
         q = q[q["공사명"].isin(proj_sel_list)]
 
     qcb = cost_breakdown_from_df(q)
-    qc1, qc2, qc3, qc4, qc5 = st.columns(5)
+    if qcb["미분류"] > 0:
+        qc1, qc2, qc3, qc4, qc5 = st.columns(5)
+        qc4.metric("미분류", fmt_won(qcb["미분류"]))
+        qc5.metric("합계", fmt_won(qcb["합계"]))
+    else:
+        qc1, qc2, qc3, qc5 = st.columns(4)
+        qc5.metric("합계", fmt_won(qcb["합계"]))
     qc1.metric("재료비", fmt_won(qcb["재료비"]))
     qc2.metric("노무비", fmt_won(qcb["노무비"]))
     qc3.metric("경비", fmt_won(qcb["경비"]))
-    qc4.metric("미분류", fmt_won(qcb["미분류"]))
-    qc5.metric("합계", fmt_won(qcb["합계"]))
 
     if "공사명" in q.columns and not q.empty:
         st.bar_chart(q.groupby("공사명")["금액"].sum(), horizontal=True)
@@ -421,7 +425,8 @@ if menu == "📊 대시보드":
         for i, (_, row) in enumerate(upcoming.head(6).iterrows()):
             with cols3[i % 3]:
                 with st.container(border=True):
-                    st.caption(f"📅 {row.get('날짜','')} · {row.get('공사명','')}")
+                    st.caption(f"📅 {row.get('날짜','')}")
+                    st.caption(f"🏗️ {row.get('공사명','')}")
                     st.markdown(f"**{row.get('작업항목','')}**")
                     a, b = st.columns(2)
                     a.caption(row.get("카테고리", ""))
