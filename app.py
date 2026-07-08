@@ -292,7 +292,16 @@ def cost_breakdown_from_df(df):
     return result
 
 
-def profit(revenue, cost):
+def project_progress_pct(mdf, project_name, today):
+    """전체 계약기간 대비 현재까지 경과 비율(시간 기준 공정률). 실제 작업 진척과는 다른 개념."""
+    start = get_contract_start(mdf, project_name)
+    end = get_contract_end(mdf, project_name)
+    if start is None or end is None or end <= start:
+        return None
+    total_days = (end - start).days
+    elapsed_days = (today - start).days
+    pct = elapsed_days / total_days * 100
+    return max(0.0, min(100.0, pct))
     margin = revenue - cost
     rate = round(margin / revenue * 100, 1) if revenue else None
     return margin, rate
@@ -378,6 +387,7 @@ if menu == "📊 대시보드":
     done_flags = []
     any_unclassified = False
     excluded_count = 0
+    today = pd.Timestamp(now_kst().date())
     for p in PROJECTS:
         pname = p["공사명"]
         if search_proj != "전체" and pname != search_proj:
@@ -389,6 +399,7 @@ if menu == "📊 대시보드":
         since = get_contract_start(mdf, pname)
         cb = cost_breakdown(rdf, pname, since, year=table_year)
         margin, rate = profit(revenue, cb["합계"])
+        progress = project_progress_pct(mdf, pname, today)
         if cb["미분류"] > 0:
             any_unclassified = True
         proj_rows.append({
@@ -401,6 +412,7 @@ if menu == "📊 대시보드":
             "누적원가": fmt_won(cb["합계"]),
             "이윤": fmt_won(margin),
             "이윤율": fmt_pct(rate),
+            "공정률": fmt_pct(round(progress, 1)) if progress is not None else "N/A",
         })
         done_flags.append(bool(p.get("완료여부", False)))
     if proj_rows:
