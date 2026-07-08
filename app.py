@@ -344,7 +344,18 @@ for pname in unregistered_projects:
 project_names = sorted(known_projects | logged_projects)
 
 _done_for_years = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
-ALL_YEARS = sorted(_done_for_years["날짜_dt"].dropna().dt.year.unique().tolist()) if "날짜_dt" in _done_for_years.columns and not _done_for_years.empty else []
+_years_from_logs = set(_done_for_years["날짜_dt"].dropna().dt.year.tolist()) if "날짜_dt" in _done_for_years.columns and not _done_for_years.empty else set()
+
+_years_from_contracts = set()
+for p in PROJECTS:
+    s = get_contract_start(mdf, p["공사명"])
+    e = get_contract_end(mdf, p["공사명"])
+    if s is not None and e is not None:
+        _years_from_contracts.update(range(s.year, e.year + 1))
+    elif s is not None:
+        _years_from_contracts.add(s.year)
+
+ALL_YEARS = sorted(_years_from_logs | _years_from_contracts)
 
 # ── 대시보드 ──────────────────────────────────────────────────────────────
 if menu == "📊 대시보드":
@@ -369,10 +380,11 @@ if menu == "📊 대시보드":
         total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(total_revenue))
     c2.metric("누적 원가", fmt_won(total_cost))
-    c3.metric("이윤", fmt_won(total_margin), fmt_pct(total_rate))
+    c3.metric("이윤", fmt_won(total_margin))
+    c4.metric("이윤율", fmt_pct(total_rate))
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
