@@ -125,7 +125,7 @@ def load_data():
 
     for datecol in ["계약시작", "계약종료"]:
         if datecol in mdf.columns:
-            mdf[datecol + "_dt"] = pd.to_datetime(mdf[datecol], errors="coerce")
+            mdf[datecol + "_dt"] = pd.to_datetime(mdf[datecol], errors="coerce", format="mixed")
 
     # ── 작업내역 (공사명으로만 구분) ──────────────────────────
     rdf = read_ws(LOG_SHEET)
@@ -167,7 +167,7 @@ def load_data():
         rdf["금액"] = 0
 
     if "날짜" in rdf.columns:
-        rdf["날짜_dt"] = pd.to_datetime(rdf["날짜"], errors="coerce")
+        rdf["날짜_dt"] = pd.to_datetime(rdf["날짜"], errors="coerce", format="mixed")
         bad_dates = rdf["날짜"].astype(str).str.strip().ne("") & rdf["날짜_dt"].isna()
         if bad_dates.sum() > 0:
             bad_rows = rdf.loc[bad_dates]
@@ -372,6 +372,7 @@ if menu == "📊 대시보드":
     table_year = top_year
 
     proj_rows = []
+    done_flags = []
     any_unclassified = False
     excluded_count = 0
     for p in PROJECTS:
@@ -395,19 +396,18 @@ if menu == "📊 대시보드":
             "누적원가": fmt_won(cb["합계"]),
             "이윤": fmt_won(margin),
             "이윤율": fmt_pct(rate),
-            "_완료": bool(p.get("완료여부", False)),
         })
+        done_flags.append(bool(p.get("완료여부", False)))
     if proj_rows:
         df_proj = pd.DataFrame(proj_rows)
         if not any_unclassified:
             df_proj = df_proj.drop(columns=["미분류"])
 
         def _highlight_done(row):
-            color = "background-color: #e5e5e5" if row["_완료"] else ""
+            color = "background-color: #e5e5e5" if done_flags[row.name] else ""
             return [color] * len(row)
 
         styled = df_proj.style.apply(_highlight_done, axis=1)
-        styled = styled.hide(axis="columns", subset=["_완료"])
         styled = styled.hide(axis="index")
         st.dataframe(styled, use_container_width=True)
         if excluded_count > 0:
