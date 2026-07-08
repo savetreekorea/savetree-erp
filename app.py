@@ -448,16 +448,11 @@ if menu == "📊 대시보드":
             {"selector": f"th.col_heading.col{_col_profit}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
             {"selector": f"th.col_heading.col{_col_rate}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
         ]
-        # 총계약금액/누적원가 폭 통일
-        for colname in ["총계약금액", "누적원가"]:
+        # 총계약금액 ~ 공정률까지 폭 통일
+        for colname in ["총계약금액", "재료비", "노무비", "경비", "미분류", "누적원가", "이윤", "이윤율", "공정률"]:
             if colname in df_proj.columns:
                 idx = df_proj.columns.get_loc(colname)
-                _table_styles.append({"selector": f".col{idx}", "props": [("width", "110px")]})
-        # 재료비/노무비/경비/이윤/이윤율 폭 통일
-        for colname in ["재료비", "노무비", "경비", "이윤", "이윤율"]:
-            if colname in df_proj.columns:
-                idx = df_proj.columns.get_loc(colname)
-                _table_styles.append({"selector": f".col{idx}", "props": [("width", "85px")]})
+                _table_styles.append({"selector": f".col{idx}", "props": [("width", "100px")]})
         styled = styled.set_table_styles(_table_styles, overwrite=False)
         styled = styled.set_properties(
             subset=["공사명"], **{"text-align": "left", "width": "480px", "white-space": "nowrap"}
@@ -538,7 +533,16 @@ elif menu == "📋 작업 내역":
     display_df = filtered[show].sort_values("날짜", ascending=False).reset_index(drop=True) if "날짜" in show else filtered[show].reset_index(drop=True)
     if "금액" in display_df.columns:
         display_df["금액"] = display_df["금액"].apply(fmt_won)
-    st.dataframe(display_df, use_container_width=True, height=500)
+    display_df.index = range(1, len(display_df) + 1)  # 연번 1부터 시작 (페이지 넘어가도 이어짐)
+
+    ROWS_PER_PAGE = 15
+    total_pages = max(1, (len(display_df) + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE)
+    dataframe_slot = st.empty()
+    with st.container(horizontal_alignment="right"):
+        page = st.pagination(num_pages=total_pages, key="worklog_page")
+    start_idx = (page - 1) * ROWS_PER_PAGE
+    end_idx = start_idx + ROWS_PER_PAGE
+    dataframe_slot.dataframe(display_df.iloc[start_idx:end_idx], use_container_width=True, height=None)
 
 # ── 보고서 ────────────────────────────────────────────────────────────────
 elif menu == "📄 보고서":
@@ -573,10 +577,12 @@ elif menu == "📄 보고서":
 
     margin, rate = profit(revenue, cb["합계"])
 
-    c1, c2, c3 = st.columns(3)
+    breakdown_text = f"재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else "")
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(revenue))
-    c2.metric("누적 원가", fmt_won(cb["합계"]), f"재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else ""))
-    c3.metric("이윤", fmt_won(margin), fmt_pct(rate))
+    c2.metric("누적 원가", fmt_won(cb["합계"]), help=breakdown_text)
+    c3.metric("이윤", fmt_won(margin))
+    c4.metric("이윤율", fmt_pct(rate))
 
     st.divider()
     st.subheader("작업 상세 내역")
@@ -592,4 +598,13 @@ elif menu == "📄 보고서":
     rep_display = recs[show].reset_index(drop=True)
     if "금액" in rep_display.columns:
         rep_display["금액"] = rep_display["금액"].apply(fmt_won)
-    st.dataframe(rep_display, use_container_width=True)
+    rep_display.index = range(1, len(rep_display) + 1)  # 연번 1부터 시작 (페이지 넘어가도 이어짐)
+
+    ROWS_PER_PAGE = 15
+    total_pages = max(1, (len(rep_display) + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE)
+    rep_slot = st.empty()
+    with st.container(horizontal_alignment="right"):
+        rep_page = st.pagination(num_pages=total_pages, key="report_page")
+    start_idx = (rep_page - 1) * ROWS_PER_PAGE
+    end_idx = start_idx + ROWS_PER_PAGE
+    rep_slot.dataframe(rep_display.iloc[start_idx:end_idx], use_container_width=True)
