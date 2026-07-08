@@ -344,14 +344,15 @@ if menu == "📊 대시보드":
 
     dc1, _ = st.columns([1, 4])
     top_year_sel = dc1.selectbox(
-        "연도 (원가 기준, 총계약금액은 계약 전체 고정)", year_options, index=default_year_idx, key="top_year"
+        "연도 (계약기간이 겹치는 공사만 집계)", year_options, index=default_year_idx, key="top_year"
     )
     top_year = int(top_year_sel) if top_year_sel != "전체" else None
-    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)" + (f" · 원가는 {top_year_sel}년만 필터링됨" if top_year else ""))
+    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)" + (f" · {top_year_sel}년과 계약기간이 겹치는 공사만 집계됨" if top_year else ""))
 
-    total_revenue = mdf["총계약금액"].sum() if "총계약금액" in mdf.columns else 0
+    active_projects = [p for p in PROJECTS if project_active_in_year(mdf, p["공사명"], top_year)]
+    total_revenue = sum(get_contract_total(mdf, p["공사명"]) for p in active_projects)
     total_cost = 0
-    for p in PROJECTS:
+    for p in active_projects:
         since = get_contract_start(mdf, p["공사명"])
         total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
@@ -364,7 +365,7 @@ if menu == "📊 대시보드":
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
     if top_year:
-        st.caption(f"⚠️ 참고용: 원가는 {top_year_sel}년만 반영했지만 총계약금액은 계약 전체 기준이라, 계약이 여러 해에 걸치면 이 이윤율은 실제보다 높게 나옵니다.")
+        st.caption(f"⚠️ 참고용: 총계약금액은 공사 단위 전체 계약금 그대로 더한 값입니다(연도 내 기간만큼 비례 배분한 게 아님) — 계약이 여러 해에 걸치는 공사는 이윤율이 실제보다 높게 나올 수 있습니다.")
 
     st.divider()
     st.subheader("공사별 이윤 현황")
@@ -402,13 +403,16 @@ if menu == "📊 대시보드":
         df_proj = pd.DataFrame(proj_rows)
         if not any_unclassified:
             df_proj = df_proj.drop(columns=["미분류"])
+        df_proj.index = range(1, len(df_proj) + 1)  # 연번 1부터 시작
 
         def _highlight_done(row):
-            color = "background-color: #e5e5e5" if done_flags[row.name] else ""
+            color = "background-color: #e5e5e5" if done_flags[row.name - 1] else ""
             return [color] * len(row)
 
         styled = df_proj.style.apply(_highlight_done, axis=1)
-        styled = styled.hide(axis="index")
+        styled = styled.set_properties(
+            subset=["이윤", "이윤율"], **{"background-color": "skyblue", "font-weight": "bold"}
+        )
         st.dataframe(styled, use_container_width=True)
         if excluded_count > 0:
             st.caption(f"계약기간이 {top_year_sel}년과 겹치지 않는 공사 {excluded_count}건은 표에서 제외됐습니다.")
