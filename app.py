@@ -364,8 +364,6 @@ if menu == "📊 대시보드":
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
-    if top_year:
-        st.caption(f"⚠️ 참고용: 총계약금액은 공사 단위 전체 계약금 그대로 더한 값입니다(연도 내 기간만큼 비례 배분한 게 아님) — 계약이 여러 해에 걸치는 공사는 이윤율이 실제보다 높게 나올 수 있습니다.")
 
     st.divider()
     st.subheader("공사별 이윤 현황")
@@ -432,7 +430,7 @@ if menu == "📊 대시보드":
                 _table_styles.append({"selector": f".col{idx}", "props": [("width", "85px")]})
         styled = styled.set_table_styles(_table_styles, overwrite=False)
         styled = styled.set_properties(
-            subset=["공사명"], **{"text-align": "left", "width": "280px", "word-break": "keep-all"}
+            subset=["공사명"], **{"text-align": "left", "width": "480px", "white-space": "nowrap"}
         )
         st.table(styled)
         if excluded_count > 0:
