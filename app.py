@@ -573,10 +573,12 @@ elif menu == "📄 보고서":
 
     margin, rate = profit(revenue, cb["합계"])
 
-    c1, c2, c3 = st.columns(3)
+    breakdown_text = f"재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else "")
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(revenue))
-    c2.metric("누적 원가", fmt_won(cb["합계"]), f"재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else ""))
-    c3.metric("이윤", fmt_won(margin), fmt_pct(rate))
+    c2.metric("누적 원가", fmt_won(cb["합계"]), help=breakdown_text)
+    c3.metric("이윤", fmt_won(margin))
+    c4.metric("이윤율", fmt_pct(rate))
 
     st.divider()
     st.subheader("작업 상세 내역")
