@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -9,10 +10,20 @@ st.set_page_config(page_title="SaveTree ERP", page_icon="🌳", layout="wide")
 
 st.markdown("""
 <style>
-[data-testid="stSidebar"]{background-color:#1a3a2a}
-[data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#95d5b2!important}
+[data-testid="stSidebar"]{background-color:#2e1065}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#d8c9f5!important}
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#fff!important}
-div[data-testid="metric-container"]{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 6px rgba(0,0,0,0.08)}
+div[data-testid="metric-container"],[data-testid="stMetric"]{
+    background:#fff;border-radius:16px;padding:18px 20px;
+    box-shadow:0 2px 10px rgba(124,92,255,0.12);border:1px solid #ede9fe;
+}
+[data-testid="stMetricLabel"]{color:#7c5cff;font-weight:600}
+[data-testid="stMetricValue"]{color:#1e1b2e}
+[data-testid="stMetricDelta"]{
+    border-radius:999px;padding:2px 10px;display:inline-block;font-weight:600;
+}
+button[kind="primary"],div.stButton>button{border-radius:10px}
+h1,h2,h3{color:#3b2a6b}
 </style>
 """, unsafe_allow_html=True)
 
@@ -507,7 +518,25 @@ if menu == "📊 대시보드":
     qc3.metric("경비", fmt_won(qcb["경비"]))
 
     if "공사명" in q.columns and not q.empty:
-        st.bar_chart(q.groupby("공사명")["금액"].sum(), horizontal=True)
+        ch1, ch2 = st.columns([1.4, 1])
+        with ch1:
+            st.caption("선택 공사별 금액 비교")
+            st.bar_chart(q.groupby("공사명")["금액"].sum(), horizontal=True)
+        with ch2:
+            st.caption("선택 범위 전체 원가 구성")
+            donut_data = {"재료비": qcb["재료비"], "노무비": qcb["노무비"], "경비": qcb["경비"]}
+            if qcb["미분류"] > 0:
+                donut_data["미분류"] = qcb["미분류"]
+            donut_data = {k: v for k, v in donut_data.items() if v > 0}
+            if donut_data:
+                fig = go.Figure(data=[go.Pie(
+                    labels=list(donut_data.keys()),
+                    values=list(donut_data.values()),
+                    hole=0.55,
+                    marker=dict(colors=["#7c5cff", "#b8a6ff", "#22c55e", "#f97316"]),
+                )])
+                fig.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280, showlegend=True)
+                st.plotly_chart(fig, use_container_width=True)
     elif not proj_sel_list:
         st.info("비교할 공사를 하나 이상 선택하세요.")
 
@@ -538,7 +567,16 @@ elif menu == "📋 작업 내역":
     display_df = filtered[show].sort_values("날짜", ascending=False).reset_index(drop=True) if "날짜" in show else filtered[show].reset_index(drop=True)
     if "금액" in display_df.columns:
         display_df["금액"] = display_df["금액"].apply(fmt_won)
-    st.dataframe(display_df, use_container_width=True, height=500)
+    display_df.index = range(1, len(display_df) + 1)  # 연번 1부터 시작 (페이지 넘어가도 이어짐)
+
+    ROWS_PER_PAGE = 15
+    total_pages = max(1, (len(display_df) + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE)
+    dataframe_slot = st.empty()
+    with st.container(horizontal_alignment="right"):
+        page = st.pagination(num_pages=total_pages, key="worklog_page")
+    start_idx = (page - 1) * ROWS_PER_PAGE
+    end_idx = start_idx + ROWS_PER_PAGE
+    dataframe_slot.dataframe(display_df.iloc[start_idx:end_idx], use_container_width=True, height=None)
 
 # ── 보고서 ────────────────────────────────────────────────────────────────
 elif menu == "📄 보고서":
@@ -594,4 +632,13 @@ elif menu == "📄 보고서":
     rep_display = recs[show].reset_index(drop=True)
     if "금액" in rep_display.columns:
         rep_display["금액"] = rep_display["금액"].apply(fmt_won)
-    st.dataframe(rep_display, use_container_width=True)
+    rep_display.index = range(1, len(rep_display) + 1)  # 연번 1부터 시작 (페이지 넘어가도 이어짐)
+
+    ROWS_PER_PAGE = 15
+    total_pages = max(1, (len(rep_display) + ROWS_PER_PAGE - 1) // ROWS_PER_PAGE)
+    rep_slot = st.empty()
+    with st.container(horizontal_alignment="right"):
+        rep_page = st.pagination(num_pages=total_pages, key="report_page")
+    start_idx = (rep_page - 1) * ROWS_PER_PAGE
+    end_idx = start_idx + ROWS_PER_PAGE
+    rep_slot.dataframe(rep_display.iloc[start_idx:end_idx], use_container_width=True)
