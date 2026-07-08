@@ -410,10 +410,16 @@ if menu == "📊 대시보드":
             return [color] * len(row)
 
         styled = df_proj.style.apply(_highlight_done, axis=1)
-        styled = styled.set_properties(
-            subset=["이윤", "이윤율"], **{"background-color": "skyblue", "font-weight": "bold"}
+        _col_profit = df_proj.columns.get_loc("이윤")
+        _col_rate = df_proj.columns.get_loc("이윤율")
+        styled = styled.set_table_styles(
+            [
+                {"selector": f"th.col_heading.col{_col_profit}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
+                {"selector": f"th.col_heading.col{_col_rate}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
+            ],
+            overwrite=False,
         )
-        st.dataframe(styled, use_container_width=True)
+        st.table(styled)
         if excluded_count > 0:
             st.caption(f"계약기간이 {top_year_sel}년과 겹치지 않는 공사 {excluded_count}건은 표에서 제외됐습니다.")
     else:
