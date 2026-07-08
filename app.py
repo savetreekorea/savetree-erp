@@ -414,7 +414,7 @@ if menu == "📊 대시보드":
         since = get_contract_start(mdf, pname)
         cb = cost_breakdown(rdf, pname, since, year=table_year)
         margin, rate = profit(revenue, cb["합계"])
-        progress = project_progress_pct(mdf, pname, today)
+        progress = 100.0 if p.get("완료여부", False) else project_progress_pct(mdf, pname, today)
         if cb["미분류"] > 0:
             any_unclassified = True
         proj_rows.append({
