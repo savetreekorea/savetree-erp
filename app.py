@@ -370,6 +370,7 @@ if menu == "📊 대시보드":
     st.divider()
     st.subheader("공사별 이윤 현황")
     st.caption(f"연도: {top_year_sel} (상단 드롭다운과 연동) · 회색 배경 = 현장마스터에 완료여부 O로 표시된 공사")
+    search_proj = st.text_input("공사명 검색", key="table_search")
     table_year = top_year
 
     proj_rows = []
@@ -378,6 +379,8 @@ if menu == "📊 대시보드":
     excluded_count = 0
     for p in PROJECTS:
         pname = p["공사명"]
+        if search_proj and search_proj not in pname:
+            continue
         if not project_active_in_year(mdf, pname, table_year):
             excluded_count += 1
             continue
@@ -412,12 +415,24 @@ if menu == "📊 대시보드":
         styled = df_proj.style.apply(_highlight_done, axis=1)
         _col_profit = df_proj.columns.get_loc("이윤")
         _col_rate = df_proj.columns.get_loc("이윤율")
-        styled = styled.set_table_styles(
-            [
-                {"selector": f"th.col_heading.col{_col_profit}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
-                {"selector": f"th.col_heading.col{_col_rate}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
-            ],
-            overwrite=False,
+        _table_styles = [
+            {"selector": "th", "props": [("font-weight", "bold")]},
+            {"selector": f"th.col_heading.col{_col_profit}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
+            {"selector": f"th.col_heading.col{_col_rate}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
+        ]
+        # 총계약금액/누적원가 폭 통일
+        for colname in ["총계약금액", "누적원가"]:
+            if colname in df_proj.columns:
+                idx = df_proj.columns.get_loc(colname)
+                _table_styles.append({"selector": f".col{idx}", "props": [("width", "140px")]})
+        # 재료비/노무비/경비/이윤/이윤율 폭 통일
+        for colname in ["재료비", "노무비", "경비", "이윤", "이윤율"]:
+            if colname in df_proj.columns:
+                idx = df_proj.columns.get_loc(colname)
+                _table_styles.append({"selector": f".col{idx}", "props": [("width", "110px")]})
+        styled = styled.set_table_styles(_table_styles, overwrite=False)
+        styled = styled.set_properties(
+            subset=["공사명"], **{"text-align": "left", "width": "220px", "word-break": "keep-all"}
         )
         st.table(styled)
         if excluded_count > 0:
