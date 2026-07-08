@@ -12,7 +12,16 @@ st.markdown("""
 [data-testid="stSidebar"]{background-color:#1a3a2a}
 [data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#95d5b2!important}
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#fff!important}
-div[data-testid="metric-container"]{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 6px rgba(0,0,0,0.08)}
+div[data-testid="metric-container"],[data-testid="stMetric"]{
+    background:#fff;border-radius:12px;padding:16px;
+    box-shadow:0 1px 2px rgba(0,0,0,0.06),0 6px 14px rgba(0,0,0,0.10);
+    border:1px solid rgba(0,0,0,0.04);
+    transition:box-shadow 0.15s ease, transform 0.15s ease;
+}
+div[data-testid="metric-container"]:hover,[data-testid="stMetric"]:hover{
+    box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(0,0,0,0.14);
+    transform:translateY(-2px);
+}
 </style>
 """, unsafe_allow_html=True)
 
