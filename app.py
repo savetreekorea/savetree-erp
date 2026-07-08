@@ -302,6 +302,9 @@ def project_progress_pct(mdf, project_name, today):
     elapsed_days = (today - start).days
     pct = elapsed_days / total_days * 100
     return max(0.0, min(100.0, pct))
+
+
+def profit(revenue, cost):
     margin = revenue - cost
     rate = round(margin / revenue * 100, 1) if revenue else None
     return margin, rate
