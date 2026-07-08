@@ -424,15 +424,15 @@ if menu == "📊 대시보드":
         for colname in ["총계약금액", "누적원가"]:
             if colname in df_proj.columns:
                 idx = df_proj.columns.get_loc(colname)
-                _table_styles.append({"selector": f".col{idx}", "props": [("width", "140px")]})
+                _table_styles.append({"selector": f".col{idx}", "props": [("width", "110px")]})
         # 재료비/노무비/경비/이윤/이윤율 폭 통일
         for colname in ["재료비", "노무비", "경비", "이윤", "이윤율"]:
             if colname in df_proj.columns:
                 idx = df_proj.columns.get_loc(colname)
-                _table_styles.append({"selector": f".col{idx}", "props": [("width", "110px")]})
+                _table_styles.append({"selector": f".col{idx}", "props": [("width", "85px")]})
         styled = styled.set_table_styles(_table_styles, overwrite=False)
         styled = styled.set_properties(
-            subset=["공사명"], **{"text-align": "left", "width": "220px", "word-break": "keep-all"}
+            subset=["공사명"], **{"text-align": "left", "width": "280px", "word-break": "keep-all"}
         )
         st.table(styled)
         if excluded_count > 0:
