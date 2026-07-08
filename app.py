@@ -22,6 +22,18 @@ div[data-testid="metric-container"]:hover,[data-testid="stMetric"]:hover{
     box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(0,0,0,0.14);
     transform:translateY(-2px);
 }
+div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="base-input"]{
+    box-shadow:0 1px 2px rgba(0,0,0,0.05),0 4px 10px rgba(0,0,0,0.08)!important;
+    border-radius:10px!important;
+}
+[data-testid="stPagination"] button,[data-testid="stPagination"] [role="button"]{
+    box-shadow:0 1px 2px rgba(0,0,0,0.06),0 3px 8px rgba(0,0,0,0.08);
+    border-radius:8px;
+}
+[data-testid="stDataFrame"],[data-testid="stTable"]{
+    box-shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 14px rgba(0,0,0,0.08);
+    border-radius:10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -551,7 +563,7 @@ elif menu == "📋 작업 내역":
         page = st.pagination(num_pages=total_pages, key="worklog_page")
     start_idx = (page - 1) * ROWS_PER_PAGE
     end_idx = start_idx + ROWS_PER_PAGE
-    dataframe_slot.dataframe(display_df.iloc[start_idx:end_idx], use_container_width=True, height=None)
+    dataframe_slot.dataframe(display_df.iloc[start_idx:end_idx], use_container_width=True)
 
 # ── 보고서 ────────────────────────────────────────────────────────────────
 elif menu == "📄 보고서":
