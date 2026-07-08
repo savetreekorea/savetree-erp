@@ -367,7 +367,7 @@ if menu == "📊 대시보드":
     st.divider()
     st.subheader("공사별 이윤 현황")
     st.caption(f"연도: {top_year_sel} (상단 드롭다운과 연동) · 회색 배경 = 현장마스터에 완료여부 O로 표시된 공사")
-    search_proj = st.selectbox("공사명 검색, ["전체"] + project_names, key="table_search")
+    search_proj = st.selectbox("공사명 검색 ["전체"] + project_names, key="table_search")
     table_year = top_year
 
     proj_rows = []
