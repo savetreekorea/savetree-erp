@@ -401,9 +401,19 @@ if menu == "📊 대시보드":
         total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
+    _spark_df = rdf[rdf["상태"] == "완료"].copy() if "상태" in rdf.columns else pd.DataFrame()
+    _active_names = {p["공사명"] for p in active_projects}
+    if not _spark_df.empty and "공사명" in _spark_df.columns:
+        _spark_df = _spark_df[_spark_df["공사명"].isin(_active_names)]
+    if top_year and "날짜_dt" in _spark_df.columns and not _spark_df.empty:
+        _spark_df = _spark_df[_spark_df["날짜_dt"].dt.year == top_year]
+    spark_values = []
+    if "날짜_dt" in _spark_df.columns and not _spark_df.empty and _spark_df["날짜_dt"].notna().any():
+        spark_values = _spark_df.set_index("날짜_dt").sort_index().resample("W")["금액"].sum().cumsum().tolist()
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(total_revenue))
-    c2.metric("누적 원가", fmt_won(total_cost))
+    c2.metric("누적 원가", fmt_won(total_cost), chart_data=spark_values if len(spark_values) > 1 else None, chart_type="area")
     c3.metric("이윤", fmt_won(total_margin))
     c4.metric("이윤율", fmt_pct(total_rate))
 
