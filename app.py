@@ -12,14 +12,16 @@ st.markdown("""
 [data-testid="stSidebar"]{background-color:#1a3a2a}
 [data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#95d5b2!important}
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#fff!important}
-div[data-testid="metric-container"],[data-testid="stMetric"]{
-    background:#fff;border-radius:12px;padding:16px;
-    box-shadow:0 1px 2px rgba(0,0,0,0.06),0 6px 14px rgba(0,0,0,0.10);
-    border:1px solid rgba(0,0,0,0.04);
+div[data-testid="metric-container"],[data-testid="stMetric"],div[class*="metric"]{
+    background:#fff!important;border-radius:14px!important;padding:18px 20px!important;
+    box-shadow:0 2px 4px rgba(0,0,0,0.10),0 12px 24px rgba(0,0,0,0.16)!important;
+    border:1px solid rgba(0,0,0,0.06)!important;
+    height:100%!important;
+    box-sizing:border-box;
     transition:box-shadow 0.15s ease, transform 0.15s ease;
 }
 div[data-testid="metric-container"]:hover,[data-testid="stMetric"]:hover{
-    box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(0,0,0,0.14);
+    box-shadow:0 4px 8px rgba(0,0,0,0.14),0 16px 32px rgba(0,0,0,0.20)!important;
     transform:translateY(-2px);
 }
 div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="base-input"]{
@@ -401,19 +403,9 @@ if menu == "📊 대시보드":
         total_cost += cost_breakdown(rdf, p["공사명"], since, year=top_year)["합계"]
     total_margin, total_rate = profit(total_revenue, total_cost)
 
-    _spark_df = rdf[rdf["상태"] == "완료"].copy() if "상태" in rdf.columns else pd.DataFrame()
-    _active_names = {p["공사명"] for p in active_projects}
-    if not _spark_df.empty and "공사명" in _spark_df.columns:
-        _spark_df = _spark_df[_spark_df["공사명"].isin(_active_names)]
-    if top_year and "날짜_dt" in _spark_df.columns and not _spark_df.empty:
-        _spark_df = _spark_df[_spark_df["날짜_dt"].dt.year == top_year]
-    spark_values = []
-    if "날짜_dt" in _spark_df.columns and not _spark_df.empty and _spark_df["날짜_dt"].notna().any():
-        spark_values = _spark_df.set_index("날짜_dt").sort_index().resample("W")["금액"].sum().cumsum().tolist()
-
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(total_revenue))
-    c2.metric("누적 원가", fmt_won(total_cost), chart_data=spark_values if len(spark_values) > 1 else None, chart_type="area")
+    c2.metric("누적 원가", fmt_won(total_cost))
     c3.metric("이윤", fmt_won(total_margin))
     c4.metric("이윤율", fmt_pct(total_rate))
 
