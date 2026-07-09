@@ -9,21 +9,22 @@ st.set_page_config(page_title="SaveTree ERP", page_icon="🌳", layout="wide")
 
 st.markdown("""
 <style>
-[data-testid="stSidebar"]{background-color:#1e293b}
-[data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#cbd5e1!important}
+[data-testid="stSidebar"]{background-color:#0d3b30}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#a8d5c8!important}
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#fff!important}
 div[data-testid="metric-container"],[data-testid="stMetric"],div[class*="metric"]{
-    background:#fff!important;border-radius:14px!important;padding:18px 20px!important;
-    box-shadow:0 2px 4px rgba(0,0,0,0.10),0 12px 24px rgba(0,0,0,0.16)!important;
-    border:1px solid rgba(0,0,0,0.06)!important;
+    background:#fff!important;border-radius:16px!important;padding:18px 20px!important;
+    box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(13,59,48,0.10)!important;
+    border:1px solid rgba(13,59,48,0.08)!important;
     height:100%!important;
     box-sizing:border-box;
     transition:box-shadow 0.15s ease, transform 0.15s ease;
 }
 div[data-testid="metric-container"]:hover,[data-testid="stMetric"]:hover{
-    box-shadow:0 4px 8px rgba(0,0,0,0.14),0 16px 32px rgba(0,0,0,0.20)!important;
+    box-shadow:0 4px 8px rgba(0,0,0,0.12),0 14px 28px rgba(13,59,48,0.16)!important;
     transform:translateY(-2px);
 }
+[data-testid="stMetricLabel"]{color:#0d5c46!important;font-weight:600}
 div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="base-input"]{
     box-shadow:0 1px 2px rgba(0,0,0,0.05),0 4px 10px rgba(0,0,0,0.08)!important;
     border-radius:10px!important;
@@ -36,17 +37,9 @@ div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="b
     box-shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 14px rgba(0,0,0,0.08);
     border-radius:10px;
 }
-/* KPI 색상 카드 (st.container(key=...)가 만든 st-key-* 클래스를 직접 타겟) */
-.st-key-kpi_revenue [data-testid="stMetric"]{background:#3b82f6!important;border:none!important;}
-.st-key-kpi_cost [data-testid="stMetric"]{background:#f97362!important;border:none!important;}
-.st-key-kpi_profit [data-testid="stMetric"]{background:#22c55e!important;border:none!important;}
-.st-key-kpi_rate [data-testid="stMetric"]{background:#eab308!important;border:none!important;}
-.st-key-kpi_revenue [data-testid="stMetric"] *,
-.st-key-kpi_cost [data-testid="stMetric"] *,
-.st-key-kpi_profit [data-testid="stMetric"] *,
-.st-key-kpi_rate [data-testid="stMetric"] *{
-    color:#fff!important;
-}
+/* 이윤 카드만 진한 틸 강조색 (st.container(key=...)의 st-key-* 클래스 사용) */
+.st-key-kpi_profit [data-testid="stMetric"]{background:#0d3b30!important;border:none!important;}
+.st-key-kpi_profit [data-testid="stMetric"] *{color:#fff!important;}
 </style>
 """, unsafe_allow_html=True)
 
