@@ -53,7 +53,7 @@ LOG_SHEET = "작업내역"
 
 COST_CATEGORIES = ["재료비", "노무비", "경비"]
 KST = ZoneInfo("Asia/Seoul")
-FONT_PATH = "fonts/NotoSansKR.ttf"  # 저장소 루트 기준 상대경로. 이 파일이 없으면 PDF 생성이 실패함.
+FONT_PATH = "NotoSansKR.ttf"  # 저장소 루트에 있는 폰트 파일 (app.py와 같은 위치)
 
 
 def now_kst():
@@ -363,7 +363,7 @@ def profit(revenue, cost):
 def build_report_pdf(proj_title, period_text, revenue, cb, margin, rate, table_df):
     if not os.path.exists(FONT_PATH):
         raise FileNotFoundError(
-            f"'{FONT_PATH}' 폰트 파일이 없습니다. 저장소에 fonts/NotoSansKR.ttf를 추가해야 PDF를 만들 수 있습니다."
+            f"'{FONT_PATH}' 폰트 파일이 없습니다. 저장소 루트에 {FONT_PATH}를 추가해야 PDF를 만들 수 있습니다."
         )
     pdf = FPDF()
     pdf.add_page()
