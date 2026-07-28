@@ -3,6 +3,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import altair as alt
+import os
+from fpdf import FPDF
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -51,6 +53,7 @@ LOG_SHEET = "작업내역"
 
 COST_CATEGORIES = ["재료비", "노무비", "경비"]
 KST = ZoneInfo("Asia/Seoul")
+FONT_PATH = "fonts/NotoSansKR.ttf"  # 저장소 루트 기준 상대경로. 이 파일이 없으면 PDF 생성이 실패함.
 
 
 def now_kst():
@@ -332,10 +335,84 @@ def project_progress_pct(mdf, project_name, today):
     return max(0.0, min(100.0, pct))
 
 
+def wrap_label_2lines(s, max_len=14):
+    """차트 x축 라벨용: 긴 공사명을 생략(...) 없이 2줄로 줄바꿈."""
+    s = str(s)
+    if len(s) <= max_len:
+        return s
+    words = s.split(" ")
+    if len(words) <= 1:  # 공백이 없는 문자열이면 글자 수 기준으로 절반씩
+        mid = len(s) // 2
+        return s[:mid] + "\n" + s[mid:]
+    line1 = []
+    line2 = []
+    for w in words:
+        target = line1 if sum(len(x) for x in line1) + len(line1) < max_len else line2
+        target.append(w)
+    if not line2:
+        line2 = [line1.pop()]
+    return " ".join(line1) + "\n" + " ".join(line2)
+
+
 def profit(revenue, cost):
     margin = revenue - cost
     rate = round(margin / revenue * 100, 1) if revenue else None
     return margin, rate
+
+
+def build_report_pdf(proj_title, period_text, revenue, cb, margin, rate, table_df):
+    if not os.path.exists(FONT_PATH):
+        raise FileNotFoundError(
+            f"'{FONT_PATH}' 폰트 파일이 없습니다. 저장소에 fonts/NotoSansKR.ttf를 추가해야 PDF를 만들 수 있습니다."
+        )
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.add_font("Noto", "", FONT_PATH)
+
+    pdf.set_font("Noto", size=16)
+    pdf.cell(0, 10, "SaveTree 보고서", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Noto", size=10)
+    pdf.cell(0, 7, f"공사명: {proj_title}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, f"기간: {period_text}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, f"생성일시: {now_kst().strftime('%Y-%m-%d %H:%M:%S')}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+
+    pdf.set_font("Noto", size=11)
+    pdf.cell(0, 7, f"총계약금액: {fmt_won(revenue)}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(
+        0, 7,
+        f"누적원가: {fmt_won(cb['합계'])}  (재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])})",
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.cell(0, 7, f"이윤: {fmt_won(margin)}   이윤율: {fmt_pct(rate)}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(6)
+
+    pdf.set_font("Noto", size=12)
+    pdf.cell(0, 8, "작업 상세 내역", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Noto", size=8)
+
+    headers = [c for c in ["날짜", "공사명", "카테고리", "작업항목", "금액"] if c in table_df.columns]
+    col_widths = {"날짜": 22, "공사명": 55, "카테고리": 16, "작업항목": 57, "금액": 30}
+    for h in headers:
+        pdf.cell(col_widths[h], 7, h, border=1)
+    pdf.ln()
+    for _, row in table_df.iterrows():
+        if pdf.get_y() > 275:
+            pdf.add_page()
+            pdf.set_font("Noto", size=8)
+            for h in headers:
+                pdf.cell(col_widths[h], 7, h, border=1)
+            pdf.ln()
+        for h in headers:
+            text = str(row.get(h, ""))
+            max_chars = int(col_widths[h] / 2.2)
+            if len(text) > max_chars:
+                text = text[: max_chars - 1] + "…"
+            pdf.cell(col_widths[h], 7, text, border=1)
+        pdf.ln()
+
+    return bytes(pdf.output())
 
 
 # ── 사이드바 ──────────────────────────────────────────────────────────────
@@ -550,13 +627,14 @@ if menu == "📊 대시보드":
         else:
             chart_q = q[q["카테고리"] == chart_metric]
         chart_df = chart_q.groupby("공사명", as_index=False)["금액"].sum()
+        chart_df["공사명_표시"] = chart_df["공사명"].apply(wrap_label_2lines)
         chart = (
             alt.Chart(chart_df)
             .mark_bar(size=30)
             .encode(
-                x=alt.X("공사명:N", title=None, axis=alt.Axis(labelAngle=0)),
+                x=alt.X("공사명_표시:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=300)),
                 y=alt.Y("금액:Q", title="금액(원)"),
-                color=alt.Color("공사명:N", legend=alt.Legend(title="공사명")),
+                color=alt.Color("공사명_표시:N", legend=alt.Legend(title="공사명")),
                 tooltip=["공사명", "금액"],
             )
         )
@@ -666,3 +744,18 @@ elif menu == "📄 보고서":
     start_idx = (rep_page - 1) * ROWS_PER_PAGE
     end_idx = start_idx + ROWS_PER_PAGE
     rep_slot.dataframe(rep_display.iloc[start_idx:end_idx], use_container_width=True)
+
+    st.divider()
+    period_text = f"{date_from.date()} ~ {date_to.date()}" if use_range and date_from is not None and date_to is not None else "계약 시작일부터 현재까지 누적"
+    if st.button("📄 PDF로 출력", key="pdf_export_btn"):
+        try:
+            pdf_bytes = build_report_pdf(rep_proj, period_text, revenue, cb, margin, rate, rep_display)
+            st.download_button(
+                "⬇️ PDF 다운로드",
+                data=pdf_bytes,
+                file_name=f"보고서_{rep_proj if rep_proj != '전체' else '전체'}_{now_kst().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                key="pdf_download_btn",
+            )
+        except FileNotFoundError as e:
+            st.error(str(e))
