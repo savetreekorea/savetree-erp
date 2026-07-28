@@ -508,7 +508,7 @@ if menu == "📊 대시보드":
     table_year = top_year
     year_filtered_names = sorted(p["공사명"] for p in PROJECTS if project_active_in_year(mdf, p["공사명"], table_year))
     search_proj = st.selectbox(
-        "공사명 검색 (입력하면 목록이 좁혀짐)", ["전체"] + year_filtered_names, key=f"table_search_{top_year_sel}"
+        "공사명 검색", ["전체"] + year_filtered_names, key=f"table_search_{top_year_sel}"
     )
 
     proj_rows = []
