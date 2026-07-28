@@ -502,7 +502,7 @@ if menu == "📊 대시보드":
             st.info("표시할 공사가 없습니다.")
 
     st.divider()
-    st.subheader("연도-월-공사별 원가 조회")
+    st.subheader("공사별 원가 비교")
     st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/미분류)만 조회합니다.")
     done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
 
@@ -536,8 +536,19 @@ if menu == "📊 대시보드":
     qc2.metric("노무비", fmt_won(qcb["노무비"]))
     qc3.metric("경비", fmt_won(qcb["경비"]))
 
+    chart_options = ["합계", "재료비", "노무비", "경비"] + (["미분류"] if qcb["미분류"] > 0 else [])
+    chart_metric = st.segmented_control("비교 항목", chart_options, default="합계", key="q_chart_metric")
+    if chart_metric is None:
+        chart_metric = "합계"
+
     if "공사명" in q.columns and not q.empty:
-        st.bar_chart(q.groupby("공사명")["금액"].sum(), horizontal=True)
+        if chart_metric == "합계":
+            chart_q = q
+        elif chart_metric == "미분류":
+            chart_q = q[~q["카테고리"].isin(COST_CATEGORIES)]
+        else:
+            chart_q = q[q["카테고리"] == chart_metric]
+        st.bar_chart(chart_q.groupby("공사명")["금액"].sum())
     elif not proj_sel_list:
         st.info("비교할 공사를 하나 이상 선택하세요.")
 
