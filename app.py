@@ -646,11 +646,14 @@ if menu == "📊 대시보드":
 elif menu == "📋 작업 내역":
     st.title("📋 작업 내역")
 
+    work_names = sorted(rdf["작업항목"].dropna().unique().tolist()) if "작업항목" in rdf.columns else []
+    work_names = [w for w in work_names if str(w).strip() != ""]
+
     c1, c2, c3, c4 = st.columns(4)
     proj_filter = c1.selectbox("공사명", ["전체"] + project_names)
     status_filter = c2.selectbox("상태", ["전체", "완료", "예정"])
     cat_filter = c3.selectbox("카테고리", ["전체"] + COST_CATEGORIES)
-    search = c4.text_input("작업명 검색")
+    search = c4.selectbox("작업명 검색 (입력하면 목록이 좁혀짐)", ["전체"] + work_names)
 
     filtered = rdf.copy()
     if proj_filter != "전체" and "공사명" in filtered.columns:
@@ -659,8 +662,8 @@ elif menu == "📋 작업 내역":
         filtered = filtered[filtered["상태"] == status_filter]
     if cat_filter != "전체" and "카테고리" in filtered.columns:
         filtered = filtered[filtered["카테고리"] == cat_filter]
-    if search and "작업항목" in filtered.columns:
-        filtered = filtered[filtered["작업항목"].str.contains(search, na=False)]
+    if search != "전체" and "작업항목" in filtered.columns:
+        filtered = filtered[filtered["작업항목"] == search]
 
     total = filtered["금액"].sum() if "금액" in filtered.columns else 0
     st.caption(f"총 {len(filtered)}건 · 합계: **{fmt_won(total)}**")
