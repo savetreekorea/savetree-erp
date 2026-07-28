@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
+import altair as alt
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -548,7 +549,18 @@ if menu == "📊 대시보드":
             chart_q = q[~q["카테고리"].isin(COST_CATEGORIES)]
         else:
             chart_q = q[q["카테고리"] == chart_metric]
-        st.bar_chart(chart_q.groupby("공사명")["금액"].sum())
+        chart_df = chart_q.groupby("공사명", as_index=False)["금액"].sum()
+        chart = (
+            alt.Chart(chart_df)
+            .mark_bar(size=30)
+            .encode(
+                x=alt.X("공사명:N", title=None, axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("금액:Q", title="금액(원)"),
+                color=alt.Color("공사명:N", legend=alt.Legend(title="공사명")),
+                tooltip=["공사명", "금액"],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
     elif not proj_sel_list:
         st.info("비교할 공사를 하나 이상 선택하세요.")
 
