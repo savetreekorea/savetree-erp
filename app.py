@@ -52,16 +52,16 @@ div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="b
 }
 .st-key-profit_card_dash [data-testid="stMetric"],
 .st-key-profit_card_report [data-testid="stMetric"]{
-    background:#e6f1fb!important;
-    border:1px solid #85b7eb!important;
+    background:linear-gradient(135deg,#7f77dd,#378add)!important;
+    border:none!important;
 }
 .st-key-profit_card_dash [data-testid="stMetricLabel"] p,
 .st-key-profit_card_report [data-testid="stMetricLabel"] p{
-    color:#0c447c!important;
+    color:#eeedfe!important;
 }
 .st-key-profit_card_dash [data-testid="stMetricValue"],
 .st-key-profit_card_report [data-testid="stMetricValue"]{
-    color:#042c53!important;
+    color:#ffffff!important;
     font-weight:700!important;
 }
 </style>
