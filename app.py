@@ -584,7 +584,7 @@ if menu == "📊 대시보드":
                     ),
                     opacity=alt.when(hover).then(alt.value(1.0)).otherwise(alt.value(0.78)),
                     strokeWidth=alt.when(hover).then(alt.value(4)).otherwise(alt.value(1)),
-                    tooltip=["항목", "금액"],
+                    tooltip=["항목", alt.Tooltip("금액:Q", format=",.0f")],
                 )
                 .add_params(hover)
             )
@@ -725,7 +725,7 @@ if menu == "📊 대시보드":
                 x=alt.X("공사명_표시:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=300)),
                 y=alt.Y("금액:Q", title="금액(원)"),
                 color=alt.Color("공사명_표시:N", legend=alt.Legend(title="공사명")),
-                tooltip=["공사명", "금액"],
+                tooltip=["공사명", alt.Tooltip("금액:Q", format=",.0f")],
             )
         )
         st.altair_chart(chart, use_container_width=True)
