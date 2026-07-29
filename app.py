@@ -29,9 +29,8 @@ div[data-testid="metric-container"],[data-testid="stMetric"],div[class*="metric"
     background:#fff!important;border-radius:16px!important;padding:18px 20px!important;
     box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(13,59,48,0.10)!important;
     border:1px solid rgba(13,59,48,0.08)!important;
-    height:220px!important;
+    height:100%!important;
     box-sizing:border-box;
-    display:flex!important;flex-direction:column;justify-content:center;
     transition:box-shadow 0.15s ease, transform 0.15s ease;
 }
 div[data-testid="metric-container"]:hover,[data-testid="stMetric"]:hover{
@@ -299,70 +298,6 @@ def fmt_pct(n):
     return f"{n:.1f}%" if n is not None else "N/A"
 
 
-def ring_gauge_html(label, pct):
-    circumference = 314.159
-    if pct is None:
-        pct_display = "N/A"
-        dash_offset = circumference
-        color = "#c3c2b7"
-    else:
-        pct_clamped = max(0.0, min(100.0, pct))
-        pct_display = f"{pct:.1f}%"
-        dash_offset = circumference * (1 - pct_clamped / 100)
-        if pct < 50:
-            color = "#e24b4a"
-        elif pct < 80:
-            color = "#ba7517"
-        else:
-            color = "#0f6e56"
-    return f"""
-    <div style="background:#ffffff;border-radius:16px;padding:18px 20px;
-    box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(13,59,48,0.10);
-    border:1px solid rgba(13,59,48,0.08);height:220px;box-sizing:border-box;
-    display:flex;flex-direction:column;justify-content:center;">
-      <p style="font-size:13px;color:#0d5c46;font-weight:600;margin:0 0 10px;">{label}</p>
-      <div style="position:relative;width:110px;height:110px;">
-        <svg viewBox="0 0 120 120" width="110" height="110">
-          <circle cx="60" cy="60" r="50" fill="none" stroke="#e6e6e6" stroke-width="14"/>
-          <circle cx="60" cy="60" r="50" fill="none" stroke="{color}" stroke-width="14"
-            stroke-dasharray="{circumference:.1f}" stroke-dashoffset="{dash_offset:.1f}" stroke-linecap="round"
-            transform="rotate(-90 60 60)"/>
-        </svg>
-        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
-          <span style="font-size:18px;font-weight:700;color:#1a1a1a;">{pct_display}</span>
-        </div>
-      </div>
-    </div>
-    """
-
-
-
-def donut_html(items):
-    """items: [(라벨, 금액, 색상hex), ...]. 미리보기 목업과 동일한 스타일의 도넛+범례."""
-    total = sum(v for _, v, _ in items)
-    if total <= 0:
-        return None
-    stops = []
-    cum = 0.0
-    for label, value, color in items:
-        start = cum / total * 100
-        cum += value
-        end = cum / total * 100
-        stops.append(f"{color} {start:.2f}% {end:.2f}%")
-    gradient = ", ".join(stops)
-    legend_rows = "".join(
-        f'<p style="margin:0;color:#1a1a1a;font-size:12px;">'
-        f'<span style="color:{color};">●</span> {label} {value / total * 100:.0f}%</p>'
-        for label, value, color in items
-    )
-    return f"""
-    <div style="display:flex;align-items:center;gap:16px;padding:8px 0;">
-      <div style="width:90px;height:90px;border-radius:50%;background:conic-gradient({gradient});flex-shrink:0;"></div>
-      <div style="line-height:1.9;">{legend_rows}</div>
-    </div>
-    """
-
-
 def get_contract_total(mdf, project_name):
     df = mdf[mdf["공사명"] == project_name] if "공사명" in mdf.columns else pd.DataFrame()
     if df.empty or "총계약금액" not in df.columns:
@@ -600,11 +535,7 @@ if menu == "📊 대시보드":
     with c3:
         with st.container(key="profit_card_dash"):
             st.metric("📈 이윤", fmt_won(total_margin))
-    with c4:
-        st.markdown(
-            ring_gauge_html("📊 이윤율", total_rate),
-            unsafe_allow_html=True,
-        )
+    c4.metric("📊 이윤율", fmt_pct(total_rate))
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
@@ -631,11 +562,20 @@ if menu == "📊 대시보드":
     with vc2:
         st.caption("원가 구성")
         agg_cb = cost_breakdown_from_df(trend_df) if not trend_df.empty else {"재료비": 0, "노무비": 0, "경비": 0, "미분류": 0}
-        colors = {"재료비": "#854f0b", "노무비": "#0f6e56", "경비": "#185fa5", "미분류": "#993c1d"}
-        items = [(k, v, colors[k]) for k, v in agg_cb.items() if k != "합계" and v > 0]
-        html = donut_html(items)
-        if html:
-            st.markdown(html, unsafe_allow_html=True)
+        donut_df = pd.DataFrame(
+            [{"항목": k, "금액": v} for k, v in agg_cb.items() if k != "합계" and v > 0]
+        )
+        if not donut_df.empty:
+            donut = (
+                alt.Chart(donut_df)
+                .mark_arc(innerRadius=45)
+                .encode(
+                    theta="금액:Q",
+                    color=alt.Color("항목:N", scale=alt.Scale(range=["#854f0b", "#0f6e56", "#185fa5", "#993c1d"])),
+                    tooltip=["항목", "금액"],
+                )
+            )
+            st.altair_chart(donut, use_container_width=True)
         else:
             st.caption("표시할 원가 데이터가 없습니다.")
 
@@ -860,11 +800,7 @@ elif menu == "📄 보고서":
     with c3:
         with st.container(key="profit_card_report"):
             st.metric("이윤", fmt_won(margin))
-    with c4:
-        st.markdown(
-            ring_gauge_html("이윤율", rate),
-            unsafe_allow_html=True,
-        )
+    c4.metric("이윤율", fmt_pct(rate))
 
     st.divider()
     st.subheader("작업 상세 내역")
