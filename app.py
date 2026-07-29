@@ -12,9 +12,19 @@ st.set_page_config(page_title="SaveTree ERP", page_icon="🌳", layout="wide")
 
 st.markdown("""
 <style>
-[data-testid="stSidebar"]{background-color:#0d3b30}
-[data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#a8d5c8!important}
-[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#fff!important}
+[data-testid="stAppViewContainer"]>.main{background:linear-gradient(135deg,#dbe4fb,#eef1fb)}
+[data-testid="stSidebar"]{background-color:#ffffff;border-right:1px solid #eee}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] span,[data-testid="stSidebar"] label{color:#1a1a1a!important}
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#1a1a1a!important}
+[data-testid="stSidebar"] [role="radiogroup"] label{
+    border-radius:10px!important;padding:8px 10px!important;margin-bottom:2px!important;
+}
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){
+    background:#e6f1fb!important;
+}
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p{
+    color:#0c447c!important;font-weight:600;
+}
 div[data-testid="metric-container"],[data-testid="stMetric"],div[class*="metric"]{
     background:#fff!important;border-radius:16px!important;padding:18px 20px!important;
     box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(13,59,48,0.10)!important;
@@ -40,9 +50,6 @@ div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="b
     box-shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 14px rgba(0,0,0,0.08);
     border-radius:10px;
 }
-/* 이윤 카드만 진한 틸 강조색 (st.container(key=...)의 st-key-* 클래스 사용) */
-.st-key-kpi_profit [data-testid="stMetric"]{background:#0d3b30!important;border:none!important;}
-.st-key-kpi_profit [data-testid="stMetric"] *{color:#fff!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -486,21 +493,52 @@ if menu == "📊 대시보드":
     total_margin, total_rate = profit(total_revenue, total_cost)
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        with st.container(key="kpi_revenue"):
-            st.metric("💰 총계약금액", fmt_won(total_revenue))
-    with c2:
-        with st.container(key="kpi_cost"):
-            st.metric("🧾 누적 원가", fmt_won(total_cost))
-    with c3:
-        with st.container(key="kpi_profit"):
-            st.metric("📈 이윤", fmt_won(total_margin))
-    with c4:
-        with st.container(key="kpi_rate"):
-            st.metric("📊 이윤율", fmt_pct(total_rate))
+    c1.metric("💰 총계약금액", fmt_won(total_revenue))
+    c2.metric("🧾 누적 원가", fmt_won(total_cost))
+    c3.metric("📈 이윤", fmt_won(total_margin))
+    c4.metric("📊 이윤율", fmt_pct(total_rate))
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
+
+    active_names = {p["공사명"] for p in active_projects}
+    trend_df = rdf[(rdf["상태"] == "완료") & (rdf["공사명"].isin(active_names))].copy() if "상태" in rdf.columns else pd.DataFrame()
+    if top_year and "날짜_dt" in trend_df.columns and not trend_df.empty:
+        trend_df = trend_df[trend_df["날짜_dt"].dt.year == top_year]
+
+    vc1, vc2 = st.columns([1.3, 1])
+    with vc1:
+        st.caption("누적원가 추이")
+        if "날짜_dt" in trend_df.columns and not trend_df.empty and trend_df["날짜_dt"].notna().any():
+            weekly = trend_df.set_index("날짜_dt").sort_index().resample("W")["금액"].sum().cumsum().reset_index()
+            weekly.columns = ["날짜", "누적원가"]
+            line = (
+                alt.Chart(weekly)
+                .mark_line(point=True, color="#185fa5")
+                .encode(x=alt.X("날짜:T", title=None), y=alt.Y("누적원가:Q", title="원(누적)"))
+            )
+            st.altair_chart(line, use_container_width=True)
+        else:
+            st.caption("표시할 완료 데이터가 없습니다.")
+    with vc2:
+        st.caption("원가 구성")
+        agg_cb = cost_breakdown_from_df(trend_df) if not trend_df.empty else {"재료비": 0, "노무비": 0, "경비": 0, "미분류": 0}
+        donut_df = pd.DataFrame(
+            [{"항목": k, "금액": v} for k, v in agg_cb.items() if k != "합계" and v > 0]
+        )
+        if not donut_df.empty:
+            donut = (
+                alt.Chart(donut_df)
+                .mark_arc(innerRadius=45)
+                .encode(
+                    theta="금액:Q",
+                    color=alt.Color("항목:N", scale=alt.Scale(range=["#854f0b", "#0f6e56", "#185fa5", "#993c1d"])),
+                    tooltip=["항목", "금액"],
+                )
+            )
+            st.altair_chart(donut, use_container_width=True)
+        else:
+            st.caption("표시할 원가 데이터가 없습니다.")
 
     st.divider()
     st.subheader("공사별 이윤 현황")
@@ -508,7 +546,7 @@ if menu == "📊 대시보드":
     table_year = top_year
     year_filtered_names = sorted(p["공사명"] for p in PROJECTS if project_active_in_year(mdf, p["공사명"], table_year))
     search_proj = st.selectbox(
-        "공사명 검색", ["전체"] + year_filtered_names, key=f"table_search_{top_year_sel}"
+        "공사명 검색 (입력하면 목록이 좁혀짐)", ["전체"] + year_filtered_names, key=f"table_search_{top_year_sel}"
     )
 
     proj_rows = []
