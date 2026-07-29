@@ -64,6 +64,11 @@ div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="b
     color:#ffffff!important;
     font-weight:700!important;
 }
+#vg-tooltip-element,.vega-tooltip{
+    font-size:15px!important;
+    line-height:1.6!important;
+    padding:8px 12px!important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -572,7 +577,11 @@ if menu == "📊 대시보드":
                 .mark_arc(innerRadius=45, stroke="#ffffff")
                 .encode(
                     theta="금액:Q",
-                    color=alt.Color("항목:N", scale=alt.Scale(range=["#7f77dd", "#4c5fd7", "#378add", "#9f86e0"])),
+                    color=alt.Color(
+                        "항목:N",
+                        scale=alt.Scale(range=["#7f77dd", "#4c5fd7", "#378add", "#9f86e0"]),
+                        legend=alt.Legend(labelFontSize=14, titleFontSize=15, symbolSize=140),
+                    ),
                     opacity=alt.when(hover).then(alt.value(1.0)).otherwise(alt.value(0.78)),
                     strokeWidth=alt.when(hover).then(alt.value(4)).otherwise(alt.value(1)),
                     tooltip=["항목", "금액"],
