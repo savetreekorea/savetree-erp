@@ -50,6 +50,20 @@ div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,div[data-baseweb="b
     box-shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 14px rgba(0,0,0,0.08);
     border-radius:10px;
 }
+.st-key-profit_card_dash [data-testid="stMetric"],
+.st-key-profit_card_report [data-testid="stMetric"]{
+    background:#e6f1fb!important;
+    border:1px solid #85b7eb!important;
+}
+.st-key-profit_card_dash [data-testid="stMetricLabel"] p,
+.st-key-profit_card_report [data-testid="stMetricLabel"] p{
+    color:#0c447c!important;
+}
+.st-key-profit_card_dash [data-testid="stMetricValue"],
+.st-key-profit_card_report [data-testid="stMetricValue"]{
+    color:#042c53!important;
+    font-weight:700!important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,6 +75,18 @@ LOG_SHEET = "작업내역"
 COST_CATEGORIES = ["재료비", "노무비", "경비"]
 KST = ZoneInfo("Asia/Seoul")
 FONT_PATH = "NotoSansKR.ttf"  # 저장소 루트에 있는 폰트 파일 (app.py와 같은 위치)
+
+
+LOGO_PATH = "logo.png"  # 저장소 루트에 있는 로고 파일 (app.py와 같은 위치)
+
+
+@st.cache_data
+def load_logo_base64():
+    if not os.path.exists(LOGO_PATH):
+        return None
+    import base64
+    with open(LOGO_PATH, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
 
 def now_kst():
@@ -424,7 +450,18 @@ def build_report_pdf(proj_title, period_text, revenue, cb, margin, rate, table_d
 
 # ── 사이드바 ──────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🌳 SaveTree")
+    _logo_b64 = load_logo_base64()
+    if _logo_b64:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:0.2rem;">'
+            f'<img src="data:image/png;base64,{_logo_b64}" width="28"/>'
+            f'<span style="font-size:1.5rem;font-weight:600;color:#1a1a1a;">SaveTree</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown("## 🌳 SaveTree")
+        st.caption("⚠️ 저장소 루트에 logo.png가 없어 임시로 이모지를 표시합니다.")
     st.markdown("##### 공사 원가 관리 시스템")
     st.divider()
     menu = st.radio("메뉴", ["📊 대시보드", "📋 작업 내역", "📄 보고서"], label_visibility="hidden")
@@ -495,7 +532,9 @@ if menu == "📊 대시보드":
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("💰 총계약금액", fmt_won(total_revenue))
     c2.metric("🧾 누적 원가", fmt_won(total_cost))
-    c3.metric("📈 이윤", fmt_won(total_margin))
+    with c3:
+        with st.container(key="profit_card_dash"):
+            st.metric("📈 이윤", fmt_won(total_margin))
     c4.metric("📊 이윤율", fmt_pct(total_rate))
 
     if total_revenue == 0:
@@ -758,7 +797,9 @@ elif menu == "📄 보고서":
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(revenue))
     c2.metric("누적 원가", fmt_won(cb["합계"]), help=breakdown_text)
-    c3.metric("이윤", fmt_won(margin))
+    with c3:
+        with st.container(key="profit_card_report"):
+            st.metric("이윤", fmt_won(margin))
     c4.metric("이윤율", fmt_pct(rate))
 
     st.divider()
