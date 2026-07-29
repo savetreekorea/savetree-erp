@@ -566,14 +566,18 @@ if menu == "📊 대시보드":
             [{"항목": k, "금액": v} for k, v in agg_cb.items() if k != "합계" and v > 0]
         )
         if not donut_df.empty:
+            hover = alt.selection_point(fields=["항목"], on="pointerover", empty=False)
             donut = (
                 alt.Chart(donut_df)
-                .mark_arc(innerRadius=45)
+                .mark_arc(innerRadius=45, stroke="#ffffff")
                 .encode(
                     theta="금액:Q",
-                    color=alt.Color("항목:N", scale=alt.Scale(range=["#854f0b", "#0f6e56", "#185fa5", "#993c1d"])),
+                    color=alt.Color("항목:N", scale=alt.Scale(range=["#7f77dd", "#4c5fd7", "#378add", "#9f86e0"])),
+                    opacity=alt.when(hover).then(alt.value(1.0)).otherwise(alt.value(0.78)),
+                    strokeWidth=alt.when(hover).then(alt.value(4)).otherwise(alt.value(1)),
                     tooltip=["항목", "금액"],
                 )
+                .add_params(hover)
             )
             st.altair_chart(donut, use_container_width=True)
         else:
