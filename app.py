@@ -298,6 +298,38 @@ def fmt_pct(n):
     return f"{n:.1f}%" if n is not None else "N/A"
 
 
+def ring_gauge_html(label, pct, sub_text):
+    circumference = 314.159
+    if pct is None:
+        pct_display = "N/A"
+        dash_offset = circumference
+        color = "#c3c2b7"
+    else:
+        pct_clamped = max(0.0, min(100.0, pct))
+        pct_display = f"{pct:.1f}%"
+        dash_offset = circumference * (1 - pct_clamped / 100)
+        color = "#378add"
+    return f"""
+    <div style="background:#ffffff;border-radius:16px;padding:18px 20px;
+    box-shadow:0 2px 4px rgba(0,0,0,0.08),0 10px 20px rgba(13,59,48,0.10);
+    border:1px solid rgba(13,59,48,0.08);height:100%;box-sizing:border-box;">
+      <p style="font-size:13px;color:#0d5c46;font-weight:600;margin:0 0 10px;">{label}</p>
+      <div style="position:relative;width:110px;height:110px;margin:0 auto;">
+        <svg viewBox="0 0 120 120" width="110" height="110">
+          <circle cx="60" cy="60" r="50" fill="none" stroke="#e6e6e6" stroke-width="14"/>
+          <circle cx="60" cy="60" r="50" fill="none" stroke="{color}" stroke-width="14"
+            stroke-dasharray="{circumference:.1f}" stroke-dashoffset="{dash_offset:.1f}" stroke-linecap="round"
+            transform="rotate(-90 60 60)"/>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+          <span style="font-size:20px;font-weight:700;color:#1a1a1a;">{pct_display}</span>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#6b6b6b;text-align:center;margin:8px 0 0;">{sub_text}</p>
+    </div>
+    """
+
+
 def get_contract_total(mdf, project_name):
     df = mdf[mdf["공사명"] == project_name] if "공사명" in mdf.columns else pd.DataFrame()
     if df.empty or "총계약금액" not in df.columns:
@@ -535,7 +567,11 @@ if menu == "📊 대시보드":
     with c3:
         with st.container(key="profit_card_dash"):
             st.metric("📈 이윤", fmt_won(total_margin))
-    c4.metric("📊 이윤율", fmt_pct(total_rate))
+    with c4:
+        st.markdown(
+            ring_gauge_html("📊 이윤율", total_rate, f"이윤 {fmt_won(total_margin)} / 총계약금액 {fmt_won(total_revenue)}"),
+            unsafe_allow_html=True,
+        )
 
     if total_revenue == 0:
         st.warning("현장마스터에 '총계약금액'이 입력되지 않아 이윤율을 계산할 수 없습니다.")
@@ -800,7 +836,11 @@ elif menu == "📄 보고서":
     with c3:
         with st.container(key="profit_card_report"):
             st.metric("이윤", fmt_won(margin))
-    c4.metric("이윤율", fmt_pct(rate))
+    with c4:
+        st.markdown(
+            ring_gauge_html("이윤율", rate, f"이윤 {fmt_won(margin)} / 총계약금액 {fmt_won(revenue)}"),
+            unsafe_allow_html=True,
+        )
 
     st.divider()
     st.subheader("작업 상세 내역")
