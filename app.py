@@ -596,6 +596,63 @@ if menu == "📊 대시보드":
             st.caption("표시할 원가 데이터가 없습니다.")
 
     st.divider()
+    st.subheader("공사별 원가 비교")
+    st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/기타/미분류)만 조회합니다.")
+    done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
+
+    fc1, fc2 = st.columns(2)
+    year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in ALL_YEARS], key="q_year")
+    month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)], key="q_month")
+    proj_sel_list = st.multiselect(
+        "공사명 (입력해서 검색, 비교하고 싶은 것만 선택)",
+        project_names,
+        default=[],
+        key="q_project_multi",
+    )
+
+    q = done_all.copy()
+    if year_sel != "전체" and "날짜_dt" in q.columns:
+        q = q[q["날짜_dt"].dt.year == int(year_sel)]
+    if month_sel != "전체" and "날짜_dt" in q.columns:
+        q = q[q["날짜_dt"].dt.month == int(month_sel.replace("월", ""))]
+    if "공사명" in q.columns:
+        q = q[q["공사명"].isin(proj_sel_list)]
+
+    qcb = cost_breakdown_from_df(q)
+    metric_cats = list(COST_CATEGORIES) + (["미분류"] if qcb["미분류"] > 0 else []) + ["합계"]
+    qcols = st.columns(len(metric_cats))
+    for col, cat in zip(qcols, metric_cats):
+        col.metric(cat, fmt_won(qcb[cat]))
+
+    chart_options = ["합계"] + list(COST_CATEGORIES) + (["미분류"] if qcb["미분류"] > 0 else [])
+    chart_metric = st.segmented_control("비교 항목", chart_options, default="합계", key="q_chart_metric")
+    if chart_metric is None:
+        chart_metric = "합계"
+
+    if "공사명" in q.columns and not q.empty:
+        if chart_metric == "합계":
+            chart_q = q
+        elif chart_metric == "미분류":
+            chart_q = q[~q["카테고리"].isin(COST_CATEGORIES)]
+        else:
+            chart_q = q[q["카테고리"] == chart_metric]
+        chart_df = chart_q.groupby("공사명", as_index=False)["금액"].sum()
+        chart_df["공사명_표시"] = chart_df["공사명"].apply(wrap_label_2lines)
+        chart = (
+            alt.Chart(chart_df)
+            .mark_bar(size=30)
+            .encode(
+                x=alt.X("공사명_표시:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=300)),
+                y=alt.Y("금액:Q", title="금액(원)"),
+                color=alt.Color("공사명_표시:N", legend=alt.Legend(title="공사명")),
+                tooltip=["공사명", alt.Tooltip("금액:Q", format=",.0f")],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
+    elif not proj_sel_list:
+        st.info("비교할 공사를 하나 이상 선택하세요.")
+
+    st.divider()
     st.subheader("공사별 이윤 현황")
     st.caption(f"연도: {top_year_sel} (상단 드롭다운과 연동) · 회색 배경 = 현장마스터에 완료여부 O로 표시된 공사")
     table_year = top_year
@@ -672,63 +729,6 @@ if menu == "📊 대시보드":
             st.info(f"{top_year_sel}년에 계약기간이 겹치는 공사가 없습니다 (전체 {excluded_count}건 모두 제외됨).")
         else:
             st.info("표시할 공사가 없습니다.")
-
-    st.divider()
-    st.subheader("공사별 원가 비교")
-    st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/기타/미분류)만 조회합니다.")
-    done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
-
-    fc1, fc2 = st.columns(2)
-    year_sel = fc1.selectbox("연도", ["전체"] + [str(y) for y in ALL_YEARS], key="q_year")
-    month_sel = fc2.selectbox("월", ["전체"] + [f"{m}월" for m in range(1, 13)], key="q_month")
-    proj_sel_list = st.multiselect(
-        "공사명 (입력해서 검색, 비교하고 싶은 것만 선택)",
-        project_names,
-        default=[],
-        key="q_project_multi",
-    )
-
-    q = done_all.copy()
-    if year_sel != "전체" and "날짜_dt" in q.columns:
-        q = q[q["날짜_dt"].dt.year == int(year_sel)]
-    if month_sel != "전체" and "날짜_dt" in q.columns:
-        q = q[q["날짜_dt"].dt.month == int(month_sel.replace("월", ""))]
-    if "공사명" in q.columns:
-        q = q[q["공사명"].isin(proj_sel_list)]
-
-    qcb = cost_breakdown_from_df(q)
-    metric_cats = list(COST_CATEGORIES) + (["미분류"] if qcb["미분류"] > 0 else []) + ["합계"]
-    qcols = st.columns(len(metric_cats))
-    for col, cat in zip(qcols, metric_cats):
-        col.metric(cat, fmt_won(qcb[cat]))
-
-    chart_options = ["합계"] + list(COST_CATEGORIES) + (["미분류"] if qcb["미분류"] > 0 else [])
-    chart_metric = st.segmented_control("비교 항목", chart_options, default="합계", key="q_chart_metric")
-    if chart_metric is None:
-        chart_metric = "합계"
-
-    if "공사명" in q.columns and not q.empty:
-        if chart_metric == "합계":
-            chart_q = q
-        elif chart_metric == "미분류":
-            chart_q = q[~q["카테고리"].isin(COST_CATEGORIES)]
-        else:
-            chart_q = q[q["카테고리"] == chart_metric]
-        chart_df = chart_q.groupby("공사명", as_index=False)["금액"].sum()
-        chart_df["공사명_표시"] = chart_df["공사명"].apply(wrap_label_2lines)
-        chart = (
-            alt.Chart(chart_df)
-            .mark_bar(size=30)
-            .encode(
-                x=alt.X("공사명_표시:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=300)),
-                y=alt.Y("금액:Q", title="금액(원)"),
-                color=alt.Color("공사명_표시:N", legend=alt.Legend(title="공사명")),
-                tooltip=["공사명", alt.Tooltip("금액:Q", format=",.0f")],
-            )
-        )
-        st.altair_chart(chart, use_container_width=True)
-    elif not proj_sel_list:
-        st.info("비교할 공사를 하나 이상 선택하세요.")
 
 # ── 작업 내역 ─────────────────────────────────────────────────────────────
 elif menu == "📋 작업 내역":
