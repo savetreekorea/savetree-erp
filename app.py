@@ -77,7 +77,7 @@ SCOPES = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/a
 MASTER_SHEET = "현장마스터"
 LOG_SHEET = "작업내역"
 
-COST_CATEGORIES = ["재료비", "노무비", "경비"]
+COST_CATEGORIES = ["재료비", "노무비", "경비", "기타"]
 KST = ZoneInfo("Asia/Seoul")
 FONT_PATH = "NotoSansKR.ttf"  # 저장소 루트에 있는 폰트 파일 (app.py와 같은 위치)
 
@@ -288,7 +288,7 @@ def load_data():
             )
             detail = "; ".join(f"{proj} {int(row['건수'])}건({row['금액합계']:,.0f}원)" for proj, row in by_proj.iterrows())
             warnings.append(
-                f"완료 상태인데 '카테고리'가 재료비/노무비/경비가 아닌 행이 있습니다 — {detail}. "
+                f"완료 상태인데 '카테고리'가 재료비/노무비/경비/기타가 아닌 행이 있습니다 — {detail}. "
                 f"원가 집계에서 빠져 이윤이 실제보다 높게 나옵니다."
             )
 
@@ -357,7 +357,7 @@ def cost_breakdown_from_df(df):
     for cat in COST_CATEGORIES:
         result[cat] = df[df["카테고리"] == cat]["금액"].sum() if "카테고리" in df.columns else 0
     result["미분류"] = df[~df["카테고리"].isin(COST_CATEGORIES)]["금액"].sum() if "카테고리" in df.columns else df["금액"].sum()
-    result["합계"] = result["재료비"] + result["노무비"] + result["경비"] + result["미분류"]
+    result["합계"] = sum(result[cat] for cat in COST_CATEGORIES) + result["미분류"]
     return result
 
 
@@ -420,7 +420,7 @@ def build_report_pdf(proj_title, period_text, revenue, cb, margin, rate, table_d
     pdf.cell(0, 7, f"총계약금액: {fmt_won(revenue)}", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(
         0, 7,
-        f"누적원가: {fmt_won(cb['합계'])}  (재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])})",
+        f"누적원가: {fmt_won(cb['합계'])}  (재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])} · 기타 {fmt_won(cb['기타'])})",
         new_x="LMARGIN", new_y="NEXT",
     )
     pdf.cell(0, 7, f"이윤: {fmt_won(margin)}   이윤율: {fmt_pct(rate)}", new_x="LMARGIN", new_y="NEXT")
@@ -524,7 +524,7 @@ if menu == "📊 대시보드":
         "연도 (계약기간이 겹치는 공사만 집계)", year_options, index=default_year_idx, key="top_year"
     )
     top_year = int(top_year_sel) if top_year_sel != "전체" else None
-    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 vs 총계약금액)" + (f" · {top_year_sel}년과 계약기간이 겹치는 공사만 집계됨" if top_year else ""))
+    st.caption("계약 시작일부터 현재까지 누적 기준 (재료비 + 노무비 + 경비 + 기타 vs 총계약금액)" + (f" · {top_year_sel}년과 계약기간이 겹치는 공사만 집계됨" if top_year else ""))
 
     active_projects = [p for p in PROJECTS if project_active_in_year(mdf, p["공사명"], top_year)]
     total_revenue = sum(get_contract_total(mdf, p["공사명"]) for p in active_projects)
@@ -566,7 +566,7 @@ if menu == "📊 대시보드":
             st.caption("표시할 완료 데이터가 없습니다.")
     with vc2:
         st.caption("원가 구성")
-        agg_cb = cost_breakdown_from_df(trend_df) if not trend_df.empty else {"재료비": 0, "노무비": 0, "경비": 0, "미분류": 0}
+        agg_cb = cost_breakdown_from_df(trend_df) if not trend_df.empty else {"재료비": 0, "노무비": 0, "경비": 0, "기타": 0, "미분류": 0}
         donut_df = pd.DataFrame(
             [{"항목": k, "금액": v} for k, v in agg_cb.items() if k != "합계" and v > 0]
         )
@@ -579,7 +579,10 @@ if menu == "📊 대시보드":
                     theta="금액:Q",
                     color=alt.Color(
                         "항목:N",
-                        scale=alt.Scale(range=["#7f77dd", "#4c5fd7", "#378add", "#9f86e0"]),
+                        scale=alt.Scale(
+                            domain=["재료비", "노무비", "경비", "기타", "미분류"],
+                            range=["#7f77dd", "#4c5fd7", "#378add", "#9f86e0", "#c25b5b"],
+                        ),
                         legend=alt.Legend(labelFontSize=14, titleFontSize=15, symbolSize=140),
                     ),
                     opacity=alt.when(hover).then(alt.value(1.0)).otherwise(alt.value(0.78)),
@@ -626,6 +629,7 @@ if menu == "📊 대시보드":
             "재료비": fmt_won(cb["재료비"]),
             "노무비": fmt_won(cb["노무비"]),
             "경비": fmt_won(cb["경비"]),
+            "기타": fmt_won(cb["기타"]),
             "미분류": fmt_won(cb["미분류"]) + (" ⚠️" if cb["미분류"] > 0 else ""),
             "누적원가": fmt_won(cb["합계"]),
             "이윤": fmt_won(margin),
@@ -652,7 +656,7 @@ if menu == "📊 대시보드":
             {"selector": f"th.col_heading.col{_col_rate}", "props": [("background-color", "skyblue"), ("font-weight", "bold")]},
         ]
         # 총계약금액 ~ 공정률까지 폭 통일
-        for colname in ["총계약금액", "재료비", "노무비", "경비", "미분류", "누적원가", "이윤", "이윤율", "공정률"]:
+        for colname in ["총계약금액", "재료비", "노무비", "경비", "기타", "미분류", "누적원가", "이윤", "이윤율", "공정률"]:
             if colname in df_proj.columns:
                 idx = df_proj.columns.get_loc(colname)
                 _table_styles.append({"selector": f".col{idx}", "props": [("width", "100px")]})
@@ -671,7 +675,7 @@ if menu == "📊 대시보드":
 
     st.divider()
     st.subheader("공사별 원가 비교")
-    st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/미분류)만 조회합니다.")
+    st.caption("이윤율은 계약금액 전체 기준 누적으로만 의미가 있어 여기서는 원가(재료비/노무비/경비/기타/미분류)만 조회합니다.")
     done_all = rdf[rdf["상태"] == "완료"] if "상태" in rdf.columns else pd.DataFrame()
 
     fc1, fc2 = st.columns(2)
@@ -693,18 +697,12 @@ if menu == "📊 대시보드":
         q = q[q["공사명"].isin(proj_sel_list)]
 
     qcb = cost_breakdown_from_df(q)
-    if qcb["미분류"] > 0:
-        qc1, qc2, qc3, qc4, qc5 = st.columns(5)
-        qc4.metric("미분류", fmt_won(qcb["미분류"]))
-        qc5.metric("합계", fmt_won(qcb["합계"]))
-    else:
-        qc1, qc2, qc3, qc5 = st.columns(4)
-        qc5.metric("합계", fmt_won(qcb["합계"]))
-    qc1.metric("재료비", fmt_won(qcb["재료비"]))
-    qc2.metric("노무비", fmt_won(qcb["노무비"]))
-    qc3.metric("경비", fmt_won(qcb["경비"]))
+    metric_cats = list(COST_CATEGORIES) + (["미분류"] if qcb["미분류"] > 0 else []) + ["합계"]
+    qcols = st.columns(len(metric_cats))
+    for col, cat in zip(qcols, metric_cats):
+        col.metric(cat, fmt_won(qcb[cat]))
 
-    chart_options = ["합계", "재료비", "노무비", "경비"] + (["미분류"] if qcb["미분류"] > 0 else [])
+    chart_options = ["합계"] + list(COST_CATEGORIES) + (["미분류"] if qcb["미분류"] > 0 else [])
     chart_metric = st.segmented_control("비교 항목", chart_options, default="합계", key="q_chart_metric")
     if chart_metric is None:
         chart_metric = "합계"
@@ -790,7 +788,7 @@ elif menu == "📄 보고서":
     target_projects = project_names if rep_proj == "전체" else [rep_proj]
 
     revenue = sum(get_contract_total(mdf, p) for p in target_projects)
-    cost_total = {"재료비": 0, "노무비": 0, "경비": 0, "미분류": 0, "합계": 0}
+    cost_total = {"재료비": 0, "노무비": 0, "경비": 0, "기타": 0, "미분류": 0, "합계": 0}
     for p in target_projects:
         since = get_contract_start(mdf, p) if not use_range else date_from
         if use_range and date_to is not None:
@@ -806,7 +804,7 @@ elif menu == "📄 보고서":
 
     margin, rate = profit(revenue, cb["합계"])
 
-    breakdown_text = f"재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else "")
+    breakdown_text = f"재료비 {fmt_won(cb['재료비'])} · 노무비 {fmt_won(cb['노무비'])} · 경비 {fmt_won(cb['경비'])} · 기타 {fmt_won(cb['기타'])}" + (f" · 미분류 {fmt_won(cb['미분류'])}⚠️" if cb["미분류"] > 0 else "")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("총계약금액", fmt_won(revenue))
     c2.metric("누적 원가", fmt_won(cb["합계"]), help=breakdown_text)
